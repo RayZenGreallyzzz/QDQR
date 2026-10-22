@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover" />
+  <meta name="theme-color" content="#11151d" />
+  <title>Phoenix Mesh Workshop</title>
+  <link rel="stylesheet" href="/src/style.css"/>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><div class="logo">✦</div><div><strong>Phoenix Mesh Workshop</strong><small>QDQR · Model &amp; Module Studio</small></div></div>
+    <div class="header-actions">
+      <button id="openBtn" class="primary">＋ Импорт</button><button id="sampleBtn" title="Пример">Пример</button>
+      <button id="resetCamera" title="Вписать модель">◎ Камера</button>
+      <button id="exportBtn" class="accent">↥ Экспорт</button>
+    </div>
+  </header>
+  <div class="workspace">
+    <aside class="sidebar left">
+      <div class="panel-heading">Инструменты <span>3D</span></div>
+      <div class="tabs" id="toolTabs"><button class="active" data-tab="edit">Правка</button><button data-tab="build">Модули</button><button data-tab="decor">Декор</button></div>
+      <div class="tab-page active" id="tab-edit">
+        <section><h3>Выбор и трансформации</h3><div class="tool-grid"><button data-mode="translate" class="mode active">↔ Переместить</button><button data-mode="rotate" class="mode">⟳ Повернуть</button><button data-mode="scale" class="mode">▣ Масштаб</button><button id="clearSelection">× Снять выбор</button></div><label class="check"><input id="snap" type="checkbox" checked/> Магнитная сетка (0,25 м)</label><button id="centerPivot">Центрировать опору</button></section>
+        <section><h3>Геометрия</h3><div class="tool-grid"><button id="cleanBtn">✧ Убрать облой</button><button id="normalsBtn">↗ Нормали</button><button id="isolateBtn">◉ Изолировать</button><button id="deleteBtn" class="warn">✕ Удалить часть</button></div><label>Мин. размер островка <output id="islandLabel">30</output> треугольников</label><input id="islandSize" type="range" min="3" max="500" step="1" value="30"/><label>Обрезать геометрию</label><div class="two"><select id="cutAxis"><option value="x">Ось X</option><option value="y">Ось Y</option><option value="z">Ось Z</option></select><select id="cutSide"><option value="above">Убрать выше</option><option value="below">Убрать ниже</option></select></div><label>Положение разреза: <output id="cutLabel">0.00</output></label><input id="cutPos" type="range" min="-2" max="2" step=".01" value="0"/><button id="cutBtn">✂ Обрезать (без крышки)</button><label>Изгиб по ширине: <output id="bendLabel">0°</output></label><input id="bendValue" type="range" min="-150" max="150" value="0"/><button id="bendBtn">⌁ Применить изгиб</button></section>
+        <section><h3>Правка и проверка</h3><div class="tool-grid"><button id="undoBtn">↶ Отменить</button><button id="redoBtn">↷ Вернуть</button><button id="bakeBtn">▧ Применить матрицы</button><button id="groundBtn">↧ На землю</button></div><label class="check"><input type="checkbox" id="wire"/> Каркасная сетка</label><label class="check"><input type="checkbox" id="gridCheck" checked/> Сетка пола</label></section>
+      </div>
+      <div class="tab-page" id="tab-build">
+        <section><h3>Строительные заготовки</h3><p class="hint">Размеры в метрах. Отдельные детали остаются редактируемыми.</p><div class="preset-grid"><button data-preset="wall">▥ Стена</button><button data-preset="floor">▤ Пол</button><button data-preset="corner">◔ Угол 90°</button><button data-preset="window">▣ Окно</button><button data-preset="door">▯ Проём</button><button data-preset="column">▥ Колонна</button><button data-preset="roof">⌂ Крыша</button><button data-preset="arch">∩ Арка</button></div></section>
+        <section><h3>Размер выделенной детали</h3><label>Ширина X, м</label><input id="dimX" type="number" min=".01" step=".05" value="2.50"/><label>Высота Y, м</label><input id="dimY" type="number" min=".01" step=".05" value="2.50"/><label>Глубина Z, м</label><input id="dimZ" type="number" min=".01" step=".05" value=".25"/><button id="sizeBtn" class="primary">Применить размеры</button><p class="hint">Масштаб меняется отдельно по осям. Геометрия не срезается.</p></section>
+      </div>
+      <div class="tab-page" id="tab-decor">
+        <section><h3>Объёмный декор</h3><div class="preset-grid"><button data-add="box">▢ Блок</button><button data-add="sphere">● Сфера</button><button data-add="cylinder">⬡ Цилиндр</button><button data-add="torus">◯ Кольцо</button><button data-add="plane">▭ Картина</button><button data-add="plaque">▣ Табличка</button></div><label>Цвет материала</label><input id="decorColor" type="color" value="#bd9568"/><label>Металличность <output id="metalVal">0.2</output></label><input id="metal" type="range" min="0" max="1" step=".05" value=".2"/><label>Шероховатость <output id="roughVal">0.7</output></label><input id="rough" type="range" min="0" max="1" step=".05" value=".7"/><button id="materialBtn">Применить материал</button></section>
+        <section><h3>Эмблемы и изображения</h3><p class="hint">Создаёт текстурированную плоскость поверх объекта. Её положение можно отрегулировать и экспортировать вместе с моделью.</p><button id="emblemBtn">✣ Добавить эмблему</button><button id="textureBtn">▧ Загрузить картинку/логотип</button></section>
+      </div>
+    </aside>
+    <main class="viewport-wrap">
+      <div id="viewport"></div>
+      <div class="viewport-hud"><span id="status">Готово · выберите модель или строительный модуль</span><span id="stats">0 трис · 0 мешей</span></div>
+      <div class="viewport-controls"><button id="viewFront">Спереди</button><button id="viewSide">Сбоку</button><button id="viewTop">Сверху</button><button id="viewFit">Вписать</button></div>
+    </main>
+    <aside class="sidebar right">
+      <div class="panel-heading">Сцена <span id="objectCount">0</span></div>
+      <div class="outline" id="objectTree"><div class="empty">Пока ничего нет</div></div>
+      <section><h3>Свойства</h3><p class="hint" id="selectedName">Ничего не выбрано</p><div class="property-row"><label>Имя</label><input id="objectName" placeholder="Имя объекта"/></div><div class="property-row"><label>X / Y / Z (позиция)</label><div class="three"><input id="posX" type="number" step=".05"/><input id="posY" type="number" step=".05"/><input id="posZ" type="number" step=".05"/></div></div><div class="property-row"><label>Масштаб X / Y / Z</label><div class="three"><input id="scaleX" type="number" step=".05"/><input id="scaleY" type="number" step=".05"/><input id="scaleZ" type="number" step=".05"/></div></div></section>
+      <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
+    </aside>
+  </div>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1</span><button id="mobileScene">☷ Сцена</button></footer>
+  <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
+  <input id="imagePicker" type="file" accept="image/*" hidden/>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
