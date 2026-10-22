@@ -144,6 +144,11 @@ function addPart(type){
   mesh.position.set(0,1.3,.35);mesh.castShadow=true;mesh.receiveShadow=true;
   addObject(mesh);
 }
+function newScene(){
+  if(root.children.length && !window.confirm('Очистить всю сцену? Сначала сохраните нужные модели.'))return;
+  snapshot();root.clear();select(null);fileBase='phoenix_module';
+  fitCamera();setStatus('Новая пустая сцена');notify('Сцена очищена');
+}
 function sample(){
   snapshot();root.clear();const wall=createConstruction('wall',mat('#8a887e'));root.add(wall);
   const column=createConstruction('column',mat('#b69f7b'));column.position.set(1.35,0,.24);root.add(column);
@@ -361,6 +366,7 @@ function initEvents(){
   $('openBtn').onclick=()=>$('filePicker').click();
   $('filePicker').onchange=async e=>{await importFile(e.target.files[0]);e.target.value='';};
   $('sampleBtn').onclick=sample;
+  $('newBtn').onclick=newScene;
   $('resetCamera').onclick=fitCamera;$('viewFit').onclick=fitCamera;
   $('viewFront').onclick=()=>view('front');$('viewSide').onclick=()=>view('side');$('viewTop').onclick=()=>view('top');
   $('exportBtn').onclick=()=>save('glb');$('saveBtn').onclick=()=>save($('format').value);
