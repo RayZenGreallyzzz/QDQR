@@ -1,0 +1,10 @@
+{
+  "appId": "com.phoenix.qdqr.meshworkshop",
+  "appName": "Phoenix Mesh Workshop",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#11151d"
+  }
+}
