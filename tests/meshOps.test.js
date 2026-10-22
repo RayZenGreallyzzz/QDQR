@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {cleanDegenerate,cropGeometry,removeSmallIslands,bendGeometry,countTriangles,createConstruction} from '../src/meshOps.js';
+import {cleanDegenerate,cropGeometry,removeSmallIslands,bendGeometry,splitGeometryIslands,countTriangles,createConstruction} from '../src/meshOps.js';
 
 function geometry(points) {
   const g=new THREE.BufferGeometry();
@@ -40,4 +40,13 @@ test('all construction presets generate meshes',()=>{
     const o=createConstruction(type,new THREE.MeshStandardMaterial());
     assert.ok(countTriangles(o).triangles>0,type);
   }
+});
+
+test('split indexed mesh atlas into isolated pieces without losing triangles',()=>{
+  const g=geometry([0,0,0, 1,0,0, 0,1,0,  10,0,0, 11,0,0, 10,1,0]);
+  g.setIndex([0,1,2,3,4,5]);
+  const split=splitGeometryIslands(g,{maxParts:2,minFaces:1});
+  assert.equal(split.totalIslands,2);
+  assert.equal(split.parts.length,2);
+  assert.equal(split.parts.reduce((n,p)=>n+p.faces,0),2);
 });
