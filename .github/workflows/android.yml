@@ -28,6 +28,10 @@ jobs:
         uses: android-actions/setup-android@v3
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Install Android API platform
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Run geometry tests
+        run: npm test
       - name: Build offline-capable web bundle
         run: npm run build
       - name: Upload Web Preview
