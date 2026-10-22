@@ -140,3 +140,71 @@ export function createConstruction(type, material){
   }
   return group;
 }
+
+
+// Separate large atlas-like meshes by true topological connected components.
+// A component is not guaranteed to correspond to a complete semantic object:
+// desks, chests or characters may each consist of many separate pieces.
+export function splitGeometryIslands(geometry,{maxParts=80,minFaces=5}={}) {
+  const pos=geometry.getAttribute('position');
+  if(!pos)throw new Error('Нет вершин');
+  if(Object.keys(geometry.morphAttributes||{}).length)throw new Error('Сначала удалите морф-цели');
+  const idx=geometry.index,faceCount=Math.floor((idx?idx.count:pos.count)/3);
+  if(faceCount>550000)throw new Error('Слишком тяжёлая сетка (>550 тыс. трис).');
+  if(!faceCount)throw new Error('Пустая сетка');
+  const parents=new Int32Array(faceCount),rank=new Uint8Array(faceCount);
+  for(let i=0;i<faceCount;i++)parents[i]=i;
+  const find=x=>{while(parents[x]!==x){parents[x]=parents[parents[x]];x=parents[x];}return x;};
+  const union=(a,b)=>{a=find(a);b=find(b);if(a===b)return;if(rank[a]<rank[b])[a,b]=[b,a];parents[b]=a;if(rank[a]===rank[b])rank[a]++;};
+  const owners=idx?new Int32Array(pos.count).fill(-1):new Map();
+  const getVertex=fk=>idx?idx.getX(fk):fk;
+  const eps=0.00005;
+  for(let face=0;face<faceCount;face++){
+    for(let k=0;k<3;k++){
+      const vi=getVertex(face*3+k);
+      if(idx){
+        const previous=owners[vi];
+        if(previous<0)owners[vi]=face;else union(face,previous);
+      } else {
+        const key=Math.round(pos.getX(vi)/eps)+','+Math.round(pos.getY(vi)/eps)+','+Math.round(pos.getZ(vi)/eps);
+        const previous=owners.get(key);
+        if(previous===undefined)owners.set(key,face);else union(face,previous);
+      }
+    }
+  }
+  const components=new Map();
+  for(let face=0;face<faceCount;face++){
+    const r=find(face);
+    if(!components.has(r))components.set(r,[]);
+    components.get(r).push(face);
+  }
+  const sorted=[...components.values()].sort((a,b)=>b.length-a.length);
+  // Small isolated components stay in the "Other fragments" mesh; no geometry
+  // is thrown away by the split action.
+  const chosen=sorted.filter(a=>a.length>=minFaces).slice(0,maxParts);
+  const remainder=sorted.slice();
+  const chosenSet=new Set(chosen);
+  const rest=remainder.filter(a=>!chosenSet.has(a)).flat();
+  const faceSets=chosen.slice();
+  if(rest.length)faceSets.push(rest);
+  const parts=[];
+  for(let i=0;i<faceSets.length;i++){
+    const faceIds=faceSets[i];
+    const output=new THREE.BufferGeometry();
+    for(const [name,attr] of Object.entries(geometry.attributes)){
+      if(attr.isInterleavedBufferAttribute)throw new Error('Interleaved buffer unsupported');
+      const Typed=attr.array.constructor;
+      const data=new Typed(faceIds.length*3*attr.itemSize);
+      let cursor=0;
+      for(const face of faceIds)for(let k=0;k<3;k++){
+        const vi=getVertex(face*3+k);
+        for(let j=0;j<attr.itemSize;j++)data[cursor++]=attr.getComponent(vi,j);
+      }
+      output.setAttribute(name,new THREE.BufferAttribute(data,attr.itemSize,attr.normalized));
+    }
+    output.computeBoundingBox();output.computeBoundingSphere();
+    const isRemainder=i>=chosen.length;
+    parts.push({geometry:output,faces:faceIds.length,name:isRemainder?'Прочие мелкие фрагменты':'Фрагмент '+(i+1)});
+  }
+  return {parts,totalIslands:sorted.length,faceCount};
+}
