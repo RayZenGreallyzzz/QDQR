@@ -1,0 +1,70 @@
+name: Android APK + Web Preview
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install dependencies
+        run: npm ci
+      - name: Build offline-capable web bundle
+        run: npm run build
+      - name: Upload Web Preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: phoenix-mesh-web-${{ github.run_number }}
+          path: dist/
+      - name: Create Android wrapper
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Assemble debug Android APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - name: Prepare APK
+        run: |
+          mkdir -p outputs
+          cp android/app/build/outputs/apk/debug/app-debug.apk outputs/PhoenixMeshWorkshop-debug.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhoenixMeshWorkshop-APK-${{ github.run_number }}
+          path: outputs/PhoenixMeshWorkshop-debug.apk
+      - name: Publish test release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-${{ github.run_number }}
+          name: "Phoenix Mesh Workshop · test build #${{ github.run_number }}"
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Unofficial development APK, not yet a validated production build.
+            This build contains the offline 3D editor, module templates and export tools.
+            Android export uses the system Share sheet to save a GLB.
+          files: outputs/PhoenixMeshWorkshop-debug.apk
