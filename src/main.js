@@ -8,7 +8,7 @@ import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {OBJExporter} from 'three/addons/exporters/OBJExporter.js';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
-import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, countTriangles, createConstruction} from './meshOps.js';
+import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, countTriangles, createConstruction} from './meshOps.js';
 
 const $=id=>document.getElementById(id);
 const viewport=$('viewport');
@@ -168,6 +168,25 @@ function applyGeometry(op, description){
     selectionBox.setFromObject(selected);refresh();
     notify(description+' · '+(out.before!==undefined?(out.before-out.after)+' треугольников удалено':'готово'));
   }catch(e){console.error(e);notify('Ошибка: '+e.message,true);}
+}
+function splitSelected(){
+  if(!eligible())return;
+  try{
+    const result=splitGeometryIslands(selected.geometry,{maxParts:80,minFaces:Number($('islandSize').value)});
+    if(result.totalIslands<2)return notify('Этот меш уже связан в один геометрический островок');
+    snapshot();
+    const old=selected,parent=old.parent;
+    const group=new THREE.Group();group.name='Разобранный меш · '+old.name;
+    group.position.copy(old.position);group.quaternion.copy(old.quaternion);group.scale.copy(old.scale);
+    parent.add(group);old.removeFromParent();
+    for(const item of result.parts){
+      const m=new THREE.Mesh(item.geometry,Array.isArray(old.material)?old.material[0].clone():old.material.clone());
+      m.name=item.name+' ('+item.faces+' трис)';
+      group.add(m);
+    }
+    select(group.children[0]||null);
+    notify('Найдено '+result.totalIslands+' островков; выделено '+result.parts.length+' редактируемых частей');
+  }catch(e){console.error(e);notify('Разделение: '+e.message,true);}
 }
 function changeMode(m){
   mode=m;transform.setMode(m);
@@ -350,6 +369,7 @@ function initEvents(){
   $('centerPivot').onclick=centerPivot;$('groundBtn').onclick=ground;
   $('deleteBtn').onclick=deleteSelection;$('isolateBtn').onclick=isolateSelection;
   $('bakeBtn').onclick=bakeAll;
+  $('splitBtn').onclick=splitSelected;
   $('cleanBtn').onclick=()=>applyGeometry(g=>removeSmallIslands(g,Number($('islandSize').value)),'Очищен облой');
   $('normalsBtn').onclick=()=>applyGeometry(g=>{const r=cleanDegenerate(g);return r;},'Убраны вырожденные треугольники; нормали пересчитаны');
   $('cutBtn').onclick=()=>applyGeometry(g=>cropGeometry(g,$('cutAxis').value,Number($('cutPos').value),$('cutSide').value),'Обрезка без закрытия среза');
