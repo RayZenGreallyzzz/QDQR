@@ -41,6 +41,11 @@ jobs:
         run: npx cap sync android
       - name: Grant wrapper permission
         run: chmod +x android/gradlew
+      - name: Keep tablet test APK upgrade signature stable
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: phoenix-qdqr-debug-keystore-v1
       - name: Build APK
         working-directory: android
         run: ./gradlew --no-daemon assembleDebug
