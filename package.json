@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host",
-    "android:sync": "npm run build && npx cap sync android"
+    "android:sync": "npm run build && npx cap sync android",
+    "test": "node --test",
+    "check": "npm run test && npm run build"
   },
   "dependencies": {
     "three": "0.186.1",
