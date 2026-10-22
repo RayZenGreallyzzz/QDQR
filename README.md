@@ -1,62 +1,60 @@
-# Phoenix Mesh Workshop · QDQR
+# Phoenix Mesh Workshop / QDQR
 
-Приложение для очистки и подготовки 3D-моделей, строительных модулей и декора для Godot / Android. Работает на Three.js, Vite и Capacitor.
+Android-first 3D editor for the Phoenix fantasy MMORPG, focused on construction modules and game prop cleanup. The initial application uses **Three.js + Capacitor 8** and is designed to run locally and offline on an **Android 15 tablet with 4 GB RAM / 128 GB storage**.
 
-## Что работает в первой версии (v0.1)
+## 📱 APK without a computer
 
-- Загрузка **GLB, GLTF, OBJ, STL**. Рекомендуется GLB со встроенными текстурами. Внешние `.bin` и `.png` из несамодостаточного GLTF не подтягиваются автоматически.
-- Интерактивная сцена: орбита, зум, оси, выделение объекта касанием, перемещение, поворот, масштаб, магнит с шагом 0.25 м.
-- Список мешей в файле и удаление отдельных частей. Удаление слабых (малых) несвязанных островков сетки. Пересчёт нормалей, отбрасывание вырожденных полигонов.
-- Обрезка по оси X/Y/Z и порогу. **Это черновая обрезка по центрам треугольников, не точный булев разрез**. Открытые срезы пока не закрываются.
-- Изгиб по горизонтали через геометрическое преобразование вершин; после него можно проверить результат в редакторе.
-- 8 базовых строительных заготовок: прямая стена, пол, четверть закруглённой стены, стена с окном, стена с дверным проёмом, колонна, двускатная крыша и арка.
-- Раздельное изменение ширины X, высоты Y, глубины Z. Изменение материала (цвет, металлическость, шероховатость). Простые формы декора, эмблемы, картинки на плоскости.
-- Экспорт **GLB, GLTF, OBJ, STL**. В GLB материалы и текстурированные декоративные плоскости сохраняются. STL и OBJ не сохраняют все PBR-материалы.
-- Применение матриц трансформации к вершинам (flatten) для подготовки модулей; 7 шагов Undo/Redo для большинства геометрических операций.
-- Сенсорная раскладка под телефоны/планшеты. Android экспорт использует системное меню «Поделиться / Сохранить в файлы».
+1. Open [GitHub Actions](https://github.com/RayZenGreallyzzz/QDQR/actions/workflows/android-apk.yml).
+2. Open the most recent **green** “Android APK — Phoenix Mesh Workshop” run.
+3. Under **Artifacts**, tap `PhoenixMeshWorkshop-Android-debug` and download the ZIP. Extract `PhoenixMeshWorkshop-debug.apk` and install it on Android.
+4. If the workflow succeeded in publishing a prerelease, the direct APK is also listed under [Releases](https://github.com/RayZenGreallyzzz/QDQR/releases).
+5. Android may ask you to allow installation for your browser/files app. Only install the APK from your own QDQR repository.
 
-## Важные ограничения
+**This is a prototype/debug build.** Until a permanent release signing key is configured, a build can have a different debug signature, making in-place updates impossible. Export edited models outside the app before reinstalling.
 
-Это *рабочий первый прототип*, а не полный аналог Blender:
+## Editing capabilities (version 0.1)
 
-1. Сетка после обрезки может оказаться незамкнутой. Нет настоящих Boolean, заполнения отверстий, sculpt-brush и UV-развёртки.
-2. «Запечь матрицы» означает перенести трансформации в координаты меша, **не** объединить соседние сетки в водонепроницаемый меш и **не** запечь нормали/освещение/PBR в новый texture atlas. Декор экспортируется отдельной плоскостью.
-3. Чистка по связным компонентам ограничена **110 000 треугольников на выбранный меш** в этой версии, чтобы не подвесить Android. Огромные атласы сначала надо разбивать на группы на ПК.
-4. Rigged/SkinnedMesh нельзя геометрически редактировать внутри этого прототипа. Такие изменения лучше делать до риггинга.
-5. Большие модели могут расходовать много ОЗУ. Для мобильных устройств рекомендован GLB со встроенными текстурами, ограниченными до 2048 px при экспорте.
+- Import **GLB** (recommended for materials), **OBJ**, **STL** and standalone/self-contained **GLTF**.
+- Touch orbit/pan/zoom and tap-to-select meshes; transform gizmo to move, rotate or scale.
+- Remove tiny disconnected triangle islands by minimum triangle count; remove degenerate triangles and recalculate normals.
+- Cut away triangles on one side of a plane (no end-cap, not a full solid boolean).
+- Bend selected static meshes and edit numeric dimensions X/Y/Z.
+- Add wall, floor, round 90-degree wall corner, roof, arch, window frame, door opening and columns.
+- Add geometric decoration and image-backed plaques/emblems; edit materials.
+- Preserve editable separate objects; convert transform matrices into vertices.
+- Export **GLB**, embedded **GLTF**, geometry **OBJ** and **STL**. GLB is the preferred format for Godot.
+- Multi-step Undo (limited more aggressively for large models to protect 4 GB RAM).
 
-## Запуск на компьютере
+### Important limitations
 
-Требуется Node.js 22+.
+This first build does **not** perform texture-atlas baking, detailed sculpting, watertight boolean trimming, true vertex painting, intelligent semantic extraction from one fused atlas, automatic mesh repair, polygon decimation / LOD, or FBX conversion. “Apply matrices” is transform baking, **not** texture baking. Cutting removes faces whose center lies on one side of the plane and leaves an open seam. Imported rigs are not supported for geometry edits.
+
+### Performance guidance for Android 4 GB
+
+- Prefer **20–80k triangles per construction prop** and **under ~150k total visible triangles** while editing; these are conservative starting recommendations, not hard hardware limits.
+- Large GLB models near **450k triangles** are rejected on touch-first devices to avoid out-of-memory crashes.
+- Split atlases into individual props before detailed geometry cleanup when possible.
+- Mobile renderer uses reduced pixel ratio, disables multisample anti-aliasing, limits idle to ~30 FPS, and keeps fewer Undo snapshots on heavy scenes.
+- Avoid importing multiple huge atlases at once; export individual GLB modules after editing.
+
+## Development
 
 ```bash
 npm install
 npm run dev
+npm run build
+npx cap add android
+npx cap sync android
+cd android && ./gradlew assembleDebug
 ```
 
-Откройте адрес, который выведет Vite (обычно `http://localhost:5173`).
-Проверка: `npm test`, затем `npm run build`.
-Сборка сайта: `dist/`.
+Capacitor 8 needs **Node.js 22+**, Android SDK and JDK 21 for cloud builds. The GitHub Actions workflow supplies those automatically.
 
-## APK для Android без Android Studio на локальном устройстве
+## Roadmap
 
-После пуша в `main` GitHub Actions запускает тесты, собирает встроенный в APK веб-редактор, создаёт debug APK и добавляет его в **Actions → Android APK + Web Preview → Artifacts**. При успешной сборке создаётся также **Releases → Phoenix Mesh Workshop · test build** с файлом `PhoenixMeshWorkshop-debug.apk`.
-
-Ссылки:
-- [GitHub Actions](https://github.com/RayZenGreallyzzz/QDQR/actions)
-- [Releases](https://github.com/RayZenGreallyzzz/QDQR/releases)
-
-APK для ручного тестирования, не подписанная релизным ключом версия. Установка debug APK может потребовать разрешения на установку из выбранного источника.
-
-## Управление
-
-- На сцене: ЛКМ/тап — выбор меша; свайп/drag — вращение; два пальца — масштаб/панорама; в ПК-режиме мышь с колесом увеличивает.
-- **G** — Move, **R** — Rotate, **S** — Scale, **Delete** — удалить, **Ctrl+Z** — отмена, **Ctrl+Shift+Z** — вернуть, **Ctrl+S** — сохранить GLB.
-- Вкладка «Модули» создаёт заготовки; вкладка «Декор» добавляет геометрию и текстуры.
-- Команда «Применить матрицы» полезна перед передачей модуля в Godot — она не уничтожает текстуры, но заменяет группировки на плоский список статических мешей.
-
-## Дальнейшее развитие
-
-**Следующий этап**: отдельный режим extraction для тяжёлых моделей, выделение кистью, полноценные булевы операции с заполнением среза, локальные деформации, UV paint, atlas baking (albedo / normal / roughness / metallic), LOD для Android, предпросмотр коллизий и экспорт библиотек Godot.
-
-Данные пользователя обрабатываются локально. Никаких моделей на сервер не отправляется.
+1. Detect, preview and individually split disconnected 3D islands without freezing the UI (web workers).
+2. Brush-driven mesh selection and remove/rebuild holes.
+3. Geometric solid booleans and capped cuts.
+4. UV editor + texture/normal/AO baking, texture atlas packing and LOD.
+5. Module library with exact pivot/snapping rules, quarter-round corners, off-axis roof pieces and collision meshes for Godot.
+6. Stable release signing for simple APK upgrades and local project files.
