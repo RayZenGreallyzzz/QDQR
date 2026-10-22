@@ -14,11 +14,12 @@ const $=id=>document.getElementById(id);
 const viewport=$('viewport');
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x17202c);
 const camera=new THREE.PerspectiveCamera(48,1,.03,1500);camera.position.set(6,4.4,7);
-const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,powerPreference:'high-performance'});
+const lowMemoryMobile=window.matchMedia('(pointer: coarse)').matches;
+const renderer=new THREE.WebGLRenderer({antialias:!lowMemoryMobile,preserveDrawingBuffer:true,powerPreference:lowMemoryMobile?'low-power':'high-performance'});
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.35;
-renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.7));
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,lowMemoryMobile?1.1:1.7));
 viewport.appendChild(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);
 orbit.enableDamping=true; orbit.dampingFactor=.09;
@@ -51,7 +52,7 @@ function cloneDeep(obj) {
   return c;
 }
 function snapshot(){
-  history.push(cloneDeep(root));if(history.length>7)history.shift();
+  history.push(cloneDeep(root));const maxUndo=countTriangles(root).triangles>60000?2:6;if(history.length>maxUndo)history.splice(0,history.length-maxUndo);
   future=[];
 }
 function restore(snap){
@@ -273,6 +274,7 @@ async function importFile(file){
       geom.computeVertexNormals();obj=new THREE.Mesh(geom,mat('#adb5bc'));
     } else throw new Error('Поддерживаются GLB, GLTF, OBJ и STL');
     const stats=countTriangles(obj);
+    if(lowMemoryMobile && stats.triangles>450000)throw new Error('Модель содержит более 450 тысяч треугольников. Для 4 ГБ ОЗУ сперва разделите её на части.');
     if(!stats.meshes)throw new Error('Файл не содержит 3D-мешей');
     if(stats.triangles>1300000)notify('Очень тяжёлая модель; на планшете возможны тормоза');
     snapshot();
@@ -420,5 +422,6 @@ const resizeObserver=new ResizeObserver(()=>{
   camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);
 });
 resizeObserver.observe(viewport);
-function loop(){requestAnimationFrame(loop);orbit.update();renderer.render(scene,camera);}
+let lastDraw=0;
+function loop(now=0){requestAnimationFrame(loop);if(document.hidden || (lowMemoryMobile && now-lastDraw<32))return;lastDraw=now;orbit.update();renderer.render(scene,camera);}
 initEvents();refresh();loop();
