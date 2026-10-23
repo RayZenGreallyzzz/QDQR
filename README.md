@@ -169,3 +169,30 @@ organic 3D objects and joints spanning different plane orientations may exhibit
 seams. 'One image' stretches independently within each orientation group; for
 seamless stone on multiple surfaces prefer **Repeat by meters**. Very large
 textures or densely triangulated models can exceed Android GPU memory.
+
+## Android black 3D viewport diagnostics and protection (v0.1.11)
+
+The UI can remain responsive while Android silently drops the WebGL context;
+in that case all models and the ground grid vanish together. QDQR now detects
+`webglcontextlost`, `webglcontextrestored` and exceptions during the render
+loop. Rather than silently showing an empty canvas, it displays a diagnostic
+overlay with **Восстановить 3D** and **Сохранить сцену GLB** so content can
+still be rescued. The graphics engine remains in place and recovers when the
+browser supplies a valid restored context. Errors in rendering do not remove
+the models from the editable scene.
+
+The import pipeline now validates finite model bounds before camera reset,
+prevents concurrent file loads and rejects excessive total polygon counts
+on memory-limited tablets. Large imported textures are downscaled to 1024px
+maximum only on mobile, without changing the source GLB on disk, its
+materials/UVs or scene geometry. Textures from mobile-model imports at 512px
+are untouched. High-poly imports use lightweight structural undo checkpoints
+to avoid cloning all existing vertex arrays in RAM.
+
+The provided forge door-frame and door each contain one high-poly mesh:
+~146k and ~165k triangles, respectively. Together they load ~311k triangles.
+The saved stone corner has 196 triangles but embeds a ~1254px PNG. Merely
+importing those files is not by itself proof of a GPU context loss: the warning
+is a diagnostic mechanism to distinguish WebGL failure from camera or scene
+problems on the actual device. This is not an automatic optimizer or mesh
+decimator; it does not reduce geometry detail.

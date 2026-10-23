@@ -98,3 +98,17 @@
 
 .house-builder-panel #manualJoinBtn,.house-builder-panel #installInOpeningBtn{min-height:46px}
 .house-builder-panel .check{margin:11px 0 5px}
+
+/* WebGL context loss / GPU driver failure: persistent controls remain available. */
+.render-error{
+ position:absolute;z-index:16;inset:auto 10px 42%;padding:15px;
+ display:flex;flex-direction:column;align-items:stretch;gap:10px;
+ background:#1e2636ed;border:1px solid #c17f4c;border-radius:12px;
+ color:#f4ddbf;box-shadow:0 8px 20px #0008;
+ max-width:470px;margin:0 auto;text-align:center;pointer-events:auto
+}
+.render-error[hidden]{display:none}
+.render-error strong{font-size:17px}
+.render-error p{font-size:13px;line-height:1.4}
+.render-error button{min-height:45px;border:1px solid #8297b2;border-radius:8px}
+@media(max-width:980px){.render-error{inset:auto 15px 35%;}}

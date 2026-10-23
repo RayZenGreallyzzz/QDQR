@@ -16,6 +16,7 @@ import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOp
 import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility,fitInsertToOpening} from './houseOps.js';
 import {dockNewModule,snapNearbyModule,isWallModule,locateWallModule,placeAdjacentTo} from './wallSnap.js';
 import {selectionGizmoPose,applyCenteredGizmo} from './editorGizmo.js';
+import {measureScene,validateSceneBounds,mobileSceneBudget,reduceImportedTextureFootprint,ANDROID_LIMITS} from './renderSafety.js';
 
 const $=id=>document.getElementById(id);
 const viewport=$('viewport');
@@ -28,6 +29,47 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.35;
 renderer.setPixelRatio(Math.min(devicePixelRatio||1,lowMemoryMobile?1.1:1.7));
 viewport.appendChild(renderer.domElement);
+// If Android drops the WebGL context, HTML controls still respond while the
+// 3D canvas becomes completely blank (even the grid disappears). Make this
+// failure explicit and recoverable without silently wiping the project.
+let gpuLost=false,renderFailure=false,renderErrorShown=false;
+const renderError=document.createElement('div');
+renderError.className='render-error';
+renderError.hidden=true;
+renderError.innerHTML='<strong>3D-просмотр остановлен</strong><p id="renderErrorText">Проверяем графический движок.</p>';
+const renderRecover=document.createElement('button');
+renderRecover.textContent='↻ Восстановить 3D';
+const renderBackup=document.createElement('button');
+renderBackup.textContent='↥ Сохранить сцену GLB';
+renderError.append(renderRecover,renderBackup);
+viewport.appendChild(renderError);
+function showRenderIssue(reason){
+  const label=document.getElementById('renderErrorText');
+  label.textContent=reason;
+  renderError.hidden=false;
+  setStatus('Сбой 3D-отрисовки · сцена остаётся в памяти');
+}
+function hideRenderIssue(){
+  renderError.hidden=true;renderErrorShown=false;
+  if(root.children.length)setStatus('3D-восстановлено · '+root.children.length+' наборов');
+}
+renderRecover.onclick=()=>{
+  try{
+    if(renderer.getContext().isContextLost())renderer.forceContextRestore();
+    else{gpuLost=false;renderFailure=false;fitCamera();renderer.render(scene,camera);hideRenderIssue();}
+  }catch(e){showRenderIssue('Восстановление не удалось: '+e.message+'. Сохрани сцену GLB.');}
+};
+renderBackup.onclick=()=>save('glb');
+renderer.domElement.addEventListener('webglcontextlost',event=>{
+  event.preventDefault();gpuLost=true;
+  showRenderIssue('Android потерял WebGL-контекст, обычно из-за нехватки видеопамяти. Попробуй восстановление или сохрани сцену GLB.');
+},false);
+renderer.domElement.addEventListener('webglcontextrestored',()=>{
+  gpuLost=false;renderFailure=false;
+  hideRenderIssue();
+  renderer.setSize(Math.max(1,viewport.clientWidth),Math.max(1,viewport.clientHeight),false);
+  fitCamera();
+},false);
 const orbit=new OrbitControls(camera,renderer.domElement);
 orbit.enableDamping=true; orbit.dampingFactor=.09;
 orbit.screenSpacePanning=true; orbit.enablePan=true; orbit.panSpeed=1.15; orbit.minDistance=.07; orbit.maxDistance=250;
@@ -99,8 +141,12 @@ function cloneDeep(obj) {
   });
   return c;
 }
-function snapshot(){
-  history.push(cloneDeep(root));const maxUndo=countTriangles(root).triangles>60000?2:6;if(history.length>maxUndo)history.splice(0,history.length-maxUndo);
+function snapshot({lightweight=false}={}){
+  // Loading an imported GLB does not mutate existing geometry; no need to
+  // duplicate every vertex buffer into history (particularly on 4GB tablets).
+  history.push(lightweight?root.clone(true):cloneDeep(root));
+  const maxUndo=countTriangles(root).triangles>60000?2:6;
+  if(history.length>maxUndo)history.splice(0,history.length-maxUndo);
   future=[];
 }
 function restore(snap){
@@ -115,7 +161,11 @@ function restore(snap){
 function undo(){if(!history.length)return notify('История пуста');future.push(cloneDeep(root));restore(history.pop());notify('Действие отменено');}
 function redo(){if(!future.length)return notify('Нечего вернуть');history.push(cloneDeep(root));restore(future.pop());notify('Действие восстановлено');}
 function fitCamera(){
-  const box=new THREE.Box3().setFromObject(root);
+  let box;
+  try{box=root.children.length?validateSceneBounds(root).box:new THREE.Box3();}
+  catch(e){notify('Камера: '+e.message,true);return;}
+  // Never use camera bounds from invalid coordinates; they can produce
+  // nonfinite projection matrices and make the entire canvas appear blank.
   if(box.isEmpty()){orbit.target.set(0,1,0);camera.position.set(6,4.4,7);}
   else{
     const center=box.getCenter(new THREE.Vector3()),size=box.getSize(new THREE.Vector3());
@@ -1168,6 +1218,11 @@ function canvasEmblem(){
 }
 async function importFile(file){
   if(!file)return;
+  if(busy)return notify('Импорт ещё выполняется. Заверши предыдущую загрузку.',true);
+  if(gpuLost || renderer.getContext().isContextLost()){
+    showRenderIssue('Перед импортом восстанови 3D, иначе Android может потерять загруженную модель.');
+    return;
+  }
   setStatus('Загрузка '+file.name+'...');busy=true;
   try{
     const ext=(file.name.split('.').pop()||'').toLowerCase(),b=await file.arrayBuffer();
@@ -1187,8 +1242,18 @@ async function importFile(file){
     const stats=countTriangles(obj);
     if(lowMemoryMobile && stats.triangles>450000)throw new Error('Модель содержит более 450 тысяч треугольников. Для 4 ГБ ОЗУ сперва разделите её на части.');
     if(!stats.meshes)throw new Error('Файл не содержит 3D-мешей');
-    if(stats.triangles>1300000)notify('Очень тяжёлая модель; на планшете возможны тормоза');
-    snapshot();
+    validateSceneBounds(obj);
+    if(lowMemoryMobile)reduceImportedTextureFootprint(obj,{maxSide:ANDROID_LIMITS.textureSide});
+    const budget=mobileSceneBudget(measureScene(root),measureScene(obj));
+    if(lowMemoryMobile && budget.hardLimitExceeded)
+      throw new Error('В сцене будет '+budget.total.toLocaleString('ru-RU')+
+        ' треугольников. На планшете такая сцена может отключить 3D. Упрости один из объектов.');
+    if(lowMemoryMobile && budget.softLimitExceeded)
+      notify('Тяжёлая сцена ('+budget.total.toLocaleString('ru-RU')+
+        ' трис). Лучше сохранить GLB перед дальнейшим импортом.');
+    // Imports only add a new independent object: history may share unchanged
+    // vertex buffers until edited. Undo/Redo still snapshots edits normally.
+    snapshot({lightweight:lowMemoryMobile&&measureScene(root).triangles>65000});
     setFacePickMode(false);clearMarkedFaces();
     const bundle=new THREE.Group();bundle.name=file.name;bundle.userData.importBatch=true;
     bundle.add(obj);root.add(bundle);fileBase=safeName(file.name.replace(/\.[^.]+$/,''));
@@ -1459,5 +1524,18 @@ const resizeObserver=new ResizeObserver(()=>{
 });
 resizeObserver.observe(viewport);
 let lastDraw=0;
-function loop(now=0){requestAnimationFrame(loop);if(document.hidden || (lowMemoryMobile && now-lastDraw<32))return;lastDraw=now;orbit.update();renderer.render(scene,camera);}
+function loop(now=0){
+  requestAnimationFrame(loop);
+  if(document.hidden || (lowMemoryMobile && now-lastDraw<32))return;
+  lastDraw=now;
+  if(gpuLost || renderFailure)return;
+  try{
+    orbit.update();renderer.render(scene,camera);
+  }catch(e){
+    console.error('QDQR WebGL frame failed',e);
+    renderFailure=true;
+    showRenderIssue('Ошибка графического движка: '+(e.message||'неизвестная')+
+      '. Объекты не удалены — сохрани GLB или попробуй восстановить 3D.');
+  }
+}
 initEvents();setCameraNavigation('orbit');refresh();loop();
