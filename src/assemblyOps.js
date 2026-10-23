@@ -69,7 +69,11 @@ export function bakeStaticAssembly(source,{merge=true,pivot='bottom-center',maxT
         [{start:0,count:part.geometry.getAttribute('position').count,materialIndex:0}];
       const materialOffset=materials.length;
       for(const m of part.materials)materials.push(m.clone());
-      for(const g of groups)merged.addGroup(offset+g.start,g.count,materialOffset+g.materialIndex);
+      for(const g of groups){
+        const slot=part.materials.length===1?0:g.materialIndex;
+        if(slot<0 || slot>=part.materials.length)throw new Error('Некорректный индекс материала в геометрии');
+        merged.addGroup(offset+g.start,g.count,materialOffset+slot);
+      }
       offset+=part.geometry.getAttribute('position').count;
     }
     merged.computeBoundingBox();merged.computeBoundingSphere();
