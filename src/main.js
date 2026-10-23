@@ -15,6 +15,7 @@ import {captureFrameSilhouette,buildGlassPieces} from './glassOps.js';
 import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOpeningTrim} from './openingOps.js';
 import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility,fitInsertToOpening} from './houseOps.js';
 import {dockNewModule,snapNearbyModule,isWallModule,locateWallModule,placeAdjacentTo} from './wallSnap.js';
+import {selectionGizmoPose,applyCenteredGizmo} from './editorGizmo.js';
 
 const $=id=>document.getElementById(id);
 const viewport=$('viewport');
@@ -202,11 +203,9 @@ function refresh(){
 }
 function syncSelectionGizmo({attach=true}={}){
   if(!selected || !selected.parent)return;
-  selected.updateWorldMatrix(true,true);
-  const box=new THREE.Box3().setFromObject(selected);
-  if(box.isEmpty())selected.getWorldPosition(gizmoPivot.position);
-  else box.getCenter(gizmoPivot.position);
-  selected.getWorldQuaternion(gizmoPivot.quaternion);
+  const pose=selectionGizmoPose(selected);
+  gizmoPivot.position.copy(pose.position);
+  gizmoPivot.quaternion.copy(pose.quaternion);
   gizmoPivot.scale.set(1,1,1);
   gizmoPivot.updateMatrixWorld(true);
   if(attach&&!facePickEnabled&&!openingActive)transform.attach(gizmoPivot);
@@ -778,17 +777,22 @@ function activeMaterial(){
 function addObject(m){
   const previous=selected;
   const preferred=locateWallModule(previous);
+  // New building pieces stay IN the active floor rather than accidentally
+  // becoming stray root objects that disappear from floor/house GLB exports.
+  const floorParent=preferred?.parent?.userData?.qdqrFloor?preferred.parent:
+    previous?.userData?.qdqrFloor?previous:null;
+  const parent=floorParent||root;
   snapshot();
-  root.add(m);
+  parent.add(m);
   let join=null,placed=false;
-  if(isWallModule(m) && $('autoJoinWalls').checked)
-    join=dockNewModule(m,root,{preferred});
+  if(isWallModule(m) && $('autoJoinWalls').checked && (preferred||!previous))
+    join=dockNewModule(m,parent,{preferred});
   if(!join){
     // Unlike the old fallback, always place near the current workpiece,
     // not at the origin where the very first wall was created.
     placed=placeAdjacentTo(m,preferred||previous);
-    if(!placed && root.children.length>1)
-      placed=placeAdjacentTo(m,root.children[root.children.length-2]);
+    if(!placed && parent.children.length>1)
+      placed=placeAdjacentTo(m,parent.children[parent.children.length-2]);
     if(!placed){
       const local=root.worldToLocal(orbit.target.clone());
       const bottom=new THREE.Box3().setFromObject(m).min.y;
@@ -1379,10 +1383,8 @@ function initEvents(){
   transform.addEventListener('objectChange',()=>{
     if(!selected || !dragInitialPivot || !dragInitialWorld || !dragParentInverse)return;
     gizmoPivot.updateMatrixWorld(true);
-    const delta=gizmoPivot.matrixWorld.clone().multiply(dragInitialPivot.clone().invert());
-    const local=dragParentInverse.clone().multiply(delta).multiply(dragInitialWorld);
-    local.decompose(selected.position,selected.quaternion,selected.scale);
-    selected.updateMatrixWorld(true);
+    applyCenteredGizmo(selected,gizmoPivot.matrixWorld,dragInitialPivot,
+      dragInitialWorld,dragParentInverse);
     selectionBox.setFromObject(selected);
     updateProperties();
   });
