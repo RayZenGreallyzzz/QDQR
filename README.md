@@ -81,3 +81,15 @@ Capacitor 8 needs **Node.js 22+**, Android SDK and JDK 21 for cloud builds. The 
 4. Select baked module and press **Сохранить выбранный GLB**. Export uses a local bottom-center pivot at (0,0,0), independent of its preview position; load it into Godot. Other scene contents do not contaminate the selected export.
 
 **Not yet available:** creating a *new* PBR texture atlas from materials, lightmap/AO baking, automatic UV unwrapping, boolean sealing, automatic low-poly retopology, collision generation. GLB retains existing materials; a model with 15 materials may still have 15 material draw calls even when geometry is merged.
+
+## Multi-floor house assembly (v0.1.5)
+
+Under **Модули → Дом и этажи**:
+- Create a named house and specify story height (default 3.0 m, supported 1.8–10 m). Each story is an editable independent group under the house. Add or duplicate stories (up to 12).
+- Choose active floor. Create a wall, floor, corner, window opening, door opening, column, roof slope, or arch. New presets automatically appear adjacent to the previous parts along X, aligned to a 0.25 m grid; use the transform gizmo and existing dimensions to make a full floor plan. Or choose an already imported detail and select **Деталь на этаж**: it is moved into the selected floor, with its bounding-box bottom aligned to story elevation.
+- **Показывать только активный этаж** makes working on internal rooms easier; **К этажу** focuses the camera.
+- **Сохранить этаж GLB** exports only the chosen story relative to its own story origin.
+- **Сохранить весь дом GLB** exports the editable full house hierarchy (each floor and component remain separate) and includes hidden storeys. Opening this GLB should preserve the arrangement without relying on a runtime server. It is NOT a baked low-poly whole-house mesh.
+- Prefer baking subsections (static decor, furniture, facades) individually instead of baking a large house to a single mesh. Large projects may exceed memory on 4 GB tablets, so export often. Automated collisions, door logic, navmesh, UV atlas and semantic roofing are not part of this release.
+
+The House module adds basic building assembly within QDQR; it does not replace Phoenix World Builder's dedicated architectural construction workflow.

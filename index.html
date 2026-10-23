@@ -38,6 +38,46 @@
         <section><h3>Правка и проверка</h3><div class="tool-grid"><button id="undoBtn">↶ Отменить</button><button id="redoBtn">↷ Вернуть</button><button id="bakeBtn">▧ Применить матрицы</button><button id="groundBtn">↧ На землю</button></div><label class="check"><input type="checkbox" id="wire"/> Каркасная сетка</label><label class="check"><input type="checkbox" id="gridCheck" checked/> Сетка пола</label></section>
       </div>
       <div class="tab-page" id="tab-build">
+        <section class="house-builder-panel">
+          <h3>⌂ Дом и этажи</h3>
+          <p class="hint">Собирай дом по этажам. Стены, крыша и декор останутся отдельными деталями, даже после сохранения общего GLB.</p>
+          <label for="houseName">Название дома</label>
+          <input id="houseName" maxlength="72" value="Каменный дом"/>
+          <label for="floorHeight">Высота этажа, м</label>
+          <input id="floorHeight" type="number" min="1.8" max="10" step=".1" value="3"/>
+          <button id="createHouseBtn" class="primary">＋ Создать дом с 1-м этажом</button>
+          <label for="houseTarget">Дом</label>
+          <select id="houseTarget"><option value="">Нет домов</option></select>
+          <div class="house-grid">
+            <button id="addFloorBtn">＋ Новый этаж</button>
+            <button id="duplicateFloorBtn">⧉ Копировать этаж</button>
+          </div>
+          <label for="floorTarget">Активный этаж</label>
+          <select id="floorTarget"><option value="">Нет этажей</option></select>
+          <div class="house-grid">
+            <button id="focusFloorBtn">◎ К этажу</button>
+            <button id="seatFloorBtn">↳ Деталь на этаж</button>
+          </div>
+          <label class="check"><input id="isolateFloor" type="checkbox"/> Показывать только активный этаж</label>
+          <h3 class="house-subtitle">Быстрое строительство</h3>
+          <label for="housePreset">Тип модуля</label>
+          <select id="housePreset">
+            <option value="wall">Прямая стена</option>
+            <option value="floor">Плита / пол</option>
+            <option value="corner">Полукруглый угол 90°</option>
+            <option value="window">Стена с окном</option>
+            <option value="door">Дверной проём</option>
+            <option value="column">Колонна</option>
+            <option value="roof">Скат крыши</option>
+            <option value="arch">Арка</option>
+          </select>
+          <button id="placeHousePresetBtn" class="primary">▤ Добавить модуль рядом</button>
+          <p class="hint">Новые модули ставятся рядом по X с шагом 0,25 м. Потом их можно передвигать, вращать, менять размер и копировать.</p>
+          <h3 class="house-subtitle">Сохранение</h3>
+          <button id="saveFloorBtn">↥ Сохранить этаж GLB</button>
+          <button id="saveHouseBtn" class="accent">↥ Сохранить весь дом GLB</button>
+          <p class="hint">GLB сохраняет этажи как группы с отдельной геометрией и текстурами. Даже скрытые при просмотре этажи включаются в экспорт. Коллизии и общее запекание текстур пока не создаются.</p>
+        </section>
         <section><h3>Строительные заготовки</h3><p class="hint">Размеры в метрах. Отдельные детали остаются редактируемыми.</p><div class="preset-grid"><button data-preset="wall">▥ Стена</button><button data-preset="floor">▤ Пол</button><button data-preset="corner">◔ Угол 90°</button><button data-preset="window">▣ Окно</button><button data-preset="door">▯ Проём</button><button data-preset="column">▥ Колонна</button><button data-preset="roof">⌂ Крыша</button><button data-preset="arch">∩ Арка</button></div></section>
         <section class="assembly-panel">
           <h3>Конструктор сборок</h3>
@@ -76,7 +116,7 @@
       <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
     </aside>
   </div>
-  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.4</span><button id="mobileScene">☷ Сцена</button></footer>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.5</span><button id="mobileScene">☷ Сцена</button></footer>
   <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
   <input id="imagePicker" type="file" accept="image/*" hidden/>
   <div id="toast" role="status" aria-live="polite"></div>

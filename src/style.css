@@ -43,3 +43,15 @@
 .assembly-panel .accent{border-color:#d6ba7c}
 .assembly-panel select,.assembly-panel input[type=text]{min-height:43px}
 .assembly-panel .check{font-size:12px}
+
+/* Multi-storey modular building */
+.house-builder-panel{background:linear-gradient(150deg,#1b2a3a,#192432)}
+.house-builder-panel h3{color:#eac784}
+.house-builder-panel h3.house-subtitle{margin-top:17px;padding-top:12px;border-top:1px solid #39485b}
+.house-builder-panel>button{display:block;width:100%;min-height:45px;margin:8px 0 0}
+.house-builder-panel label{margin-top:12px}
+.house-builder-panel .check{margin:13px 0;line-height:1.4}
+.house-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}
+.house-grid button{min-height:44px;padding:8px 5px;font-size:12px}
+.house-builder-panel select,.house-builder-panel input:not([type=checkbox]){min-height:43px}
+@media(max-width:980px){.house-builder-panel button{min-height:49px}}

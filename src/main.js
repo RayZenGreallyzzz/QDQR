@@ -10,6 +10,7 @@ import {OBJExporter} from 'three/addons/exporters/OBJExporter.js';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, removePickedFaces, countTriangles, createConstruction} from './meshOps.js';
 import {bakeStaticAssembly} from './assemblyOps.js';
+import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility} from './houseOps.js';
 
 const $=id=>document.getElementById(id);
 const viewport=$('viewport');
@@ -168,6 +169,7 @@ function refresh(){
   if(idx>250){const p=document.createElement('div');p.className='hint';p.textContent='Показаны первые 250 объектов';$('objectTree').append(p);}
   updateProperties();
   refreshAssemblyTargets();
+  refreshHouseTargets();
 }
 function select(obj){
   if(obj && !obj.isMesh && !obj.isGroup)return;
@@ -284,6 +286,140 @@ async function saveSelectedModule(){
       await save('glb',baked,item.name||'Модуль');
     }
   }catch(e){console.error(e);notify('Экспорт модуля: '+e.message,true);}
+}
+
+function refreshHouseTargets(){
+  const dropdown=$('houseTarget'),current=dropdown.value;
+  const houses=root.children.filter(o=>o.isGroup&&o.userData?.qdqrHouse);
+  dropdown.replaceChildren();
+  for(const house of houses){
+    const opt=document.createElement('option');
+    opt.value=house.uuid;opt.textContent=house.name;dropdown.append(opt);
+  }
+  if(!houses.length){
+    const o=document.createElement('option');o.value='';o.textContent='Нет домов';dropdown.append(o);
+  }
+  const house=houses.find(x=>x.uuid===current)||houses[houses.length-1]||null;
+  if(house)dropdown.value=house.uuid;
+  const floorSelect=$('floorTarget'),previousFloor=floorSelect.value;
+  const floors=getFloors(house);
+  floorSelect.replaceChildren();
+  for(const floor of floors){
+    const o=document.createElement('option');
+    o.value=floor.uuid;o.textContent=floor.name;floorSelect.append(o);
+  }
+  if(!floors.length){
+    const o=document.createElement('option');o.value='';o.textContent='Нет этажей';floorSelect.append(o);
+  }
+  const floor=floors.find(x=>x.uuid===previousFloor)||floors[floors.length-1]||null;
+  if(floor)floorSelect.value=floor.uuid;
+  const active=!!house,hasFloor=!!floor;
+  for(const id of ['addFloorBtn','duplicateFloorBtn','saveHouseBtn'])$(id).disabled=!active;
+  for(const id of ['focusFloorBtn','seatFloorBtn','placeHousePresetBtn','saveFloorBtn'])$(id).disabled=!hasFloor;
+  if(house&&floor){
+    const isolate=$('isolateFloor').checked;
+    setFloorVisibility(house,floor,{isolate});
+    floor.updateWorldMatrix(true,false);
+    grid.position.y=floor.getWorldPosition(new THREE.Vector3()).y-.004;
+  }else grid.position.y=-.004;
+}
+function currentHouse(){
+  return root.children.find(o=>o.userData?.qdqrHouse && o.uuid===$('houseTarget').value)||null;
+}
+function currentFloor(){
+  return getFloors(currentHouse()).find(o=>o.uuid===$('floorTarget').value)||null;
+}
+function createHouseAction(){
+  const height=Number($('floorHeight').value);
+  try{
+    const house=createHouse($('houseName').value,height);
+    snapshot();
+    root.add(house);
+    select(house);
+    $('houseTarget').value=house.uuid;
+    $('floorTarget').value=getFloors(house)[0].uuid;
+    refreshHouseTargets();
+    notify('Создан дом «'+house.name+'» с первым этажом. Строй стены и пол.');
+  }catch(e){notify('Не удалось создать дом: '+e.message,true);}
+}
+function addFloorAction(){
+  const house=currentHouse();
+  if(!house)return notify('Сначала создай дом',true);
+  try{
+    snapshot();
+    const floor=createFloor(house);
+    select(floor);
+    $('floorTarget').value=floor.uuid;
+    refreshHouseTargets();
+    notify('Добавлен '+floor.name+'. Модули будут на нужной высоте.');
+  }catch(e){notify(e.message,true);}
+}
+function duplicateFloorAction(){
+  const house=currentHouse(),floor=currentFloor();
+  if(!house||!floor)return notify('Сначала выбери этаж',true);
+  const floors=getFloors(house);
+  if(floors.length>=12)return notify('Лимит: 12 этажей',true);
+  if(countTriangles(floor).triangles>100000 && !window.confirm('Этаж тяжёлый. Копирование может занять много памяти. Продолжить?'))return;
+  snapshot();
+  const copy=cloneDeep(floor);
+  const number=Math.max(...floors.map(f=>f.userData.floorNumber))+1;
+  copy.name='Этаж '+number;copy.userData.qdqrFloor=true;copy.userData.floorNumber=number;
+  copy.visible=true;copy.position.y=(number-1)*Number(house.userData.floorHeight);
+  house.add(copy);
+  select(copy);$('floorTarget').value=copy.uuid;refreshHouseTargets();
+  notify('Скопирован этаж целиком, детали и текстуры сохранены.');
+}
+function focusFloorAction(){
+  const floor=currentFloor();
+  if(!floor)return;
+  select(floor);
+  floor.updateWorldMatrix(true,false);
+  const bbox=new THREE.Box3().setFromObject(floor);
+  const center=bbox.isEmpty()?floor.getWorldPosition(new THREE.Vector3()):bbox.getCenter(new THREE.Vector3());
+  const size=bbox.isEmpty()?5:Math.max(bbox.getSize(new THREE.Vector3()).length(),3);
+  const view=camera.position.clone().sub(orbit.target);
+  camera.position.copy(center).add(view.setLength(Math.max(size*1.5,3)));
+  orbit.target.copy(center);orbit.update();
+}
+function placePresetAction(){
+  const floor=currentFloor();
+  if(!floor)return notify('Сначала выбери этаж',true);
+  try{
+    snapshot();
+    const module=addPresetToFloor(floor,$('housePreset').value,activeMaterial(),.25);
+    select(module);
+    notify('Добавлен модуль на '+floor.name+'. Можно вращать и менять размеры.');
+  }catch(e){notify(e.message,true);}
+}
+function seatPartAction(){
+  const floor=currentFloor(),part=selected;
+  if(!floor)return notify('Сначала выбери этаж',true);
+  if(!part||part===floor)return notify('Выбери импортированную деталь или модуль в сцене',true);
+  const house=currentHouse();
+  if(part===house || part.userData?.qdqrFloor || part.userData?.qdqrHouse)return notify('Выбери деталь, а не этаж или дом',true);
+  try{
+    snapshot();
+    putOnFloor(floor,part,{seat:true});
+    select(part);
+    notify('Объект перенесён на '+floor.name+' с сохранением текстур.');
+  }catch(e){notify(e.message,true);}
+}
+async function saveHouseAction(){
+  const house=currentHouse();
+  if(!house)return notify('Сначала создай дом',true);
+  if(!countTriangles(house).meshes)return notify('Дом пустой: сначала добавь детали',true);
+  // Include hidden stories in the serialized GLB. Export house hierarchy,
+  // not unrelated root scene content, and never flatten the whole building.
+  await save('glb',house,house.name,true);
+}
+async function saveFloorAction(){
+  const floor=currentFloor();
+  if(!floor)return notify('Выбери этаж',true);
+  if(!countTriangles(floor).meshes)return notify('Этаж пустой',true);
+  const copy=cloneDeep(floor);
+  copy.position.set(0,0,0);
+  copy.visible=true;
+  await save('glb',copy,(currentHouse()?.name||'Дом')+'_'+floor.name,true);
 }
 function activeMaterial(){
   return new THREE.MeshStandardMaterial({color:$('decorColor').value,metalness:Number($('metal').value),roughness:Number($('rough').value),side:THREE.DoubleSide});
@@ -637,7 +773,7 @@ async function downloadBlob(blob,name){
   link.href=url;link.download=name;document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),20000);
 }
-async function save(format,subject=root,filename=fileBase){
+async function save(format,subject=root,filename=fileBase,includeHidden=false){
   if(!subject || (!subject.isMesh && !subject.children?.length))return notify('Нечего сохранять',true);
   if(busy)return;busy=true;setStatus('Экспорт '+format.toUpperCase()+'...');
   try{
@@ -645,7 +781,7 @@ async function save(format,subject=root,filename=fileBase){
     if(format==='glb'||format==='gltf'){
       const exporter=new GLTFExporter();
       const serialized=await exporter.parseAsync(subject,{
-        binary:format==='glb',onlyVisible:true,trs:false,maxTextureSize:2048,
+        binary:format==='glb',onlyVisible:!includeHidden,trs:false,maxTextureSize:2048,
         includeCustomExtensions:false
       });
       content=format==='glb'?new Blob([serialized],{type:'model/gltf-binary'}):new Blob([JSON.stringify(serialized)],{type:'model/gltf+json'});
@@ -682,6 +818,17 @@ function initEvents(){
   $('centerPivot').onclick=centerPivot;$('groundBtn').onclick=ground;
   $('deleteBtn').onclick=deleteSelection;$('isolateBtn').onclick=isolateSelection;
   $('bakeBtn').onclick=bakeAll;
+  $('createHouseBtn').onclick=createHouseAction;
+  $('addFloorBtn').onclick=addFloorAction;
+  $('duplicateFloorBtn').onclick=duplicateFloorAction;
+  $('focusFloorBtn').onclick=focusFloorAction;
+  $('seatFloorBtn').onclick=seatPartAction;
+  $('placeHousePresetBtn').onclick=placePresetAction;
+  $('saveFloorBtn').onclick=saveFloorAction;
+  $('saveHouseBtn').onclick=saveHouseAction;
+  $('houseTarget').onchange=refreshHouseTargets;
+  $('floorTarget').onchange=refreshHouseTargets;
+  $('isolateFloor').onchange=()=>{refreshHouseTargets();};
   $('createAssemblyBtn').onclick=createAssembly;
   $('addAssemblyBtn').onclick=addToAssembly;
   $('bakeAssemblyBtn').onclick=bakeAssembly;
