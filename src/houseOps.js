@@ -65,13 +65,16 @@ export function addPresetToFloor(floor,type,material,snap=.25,{preferred=null,au
   floor.updateWorldMatrix(true,true);
   // Actual wall centerline sockets are authoritative. No BBox edge snap for
   // straight walls, doors/windows and 90-degree curved corners.
-  if(module.userData.qdqrWallSockets){
-    const join=autoDock?dockNewModule(module,floor,{preferred}):null;
-    if(join)module.userData.qdqrLastJoin={
-      targetName:join.anchor.name,
-      error:join.error
-    };
-    return module;
+  if(module.userData.qdqrWallSockets && autoDock){
+    const join=dockNewModule(module,floor,{preferred});
+    if(join){
+      module.userData.qdqrLastJoin={
+        targetName:join.anchor.name,
+        error:join.error
+      };
+      return module;
+    }
+    if(!others.length)return module;
   }
   const ownBox=new THREE.Box3().setFromObject(module);
   const localMin=floor.worldToLocal(ownBox.min.clone());
