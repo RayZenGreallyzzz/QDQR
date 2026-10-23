@@ -19,7 +19,8 @@ test('assembling two textured objects merges geometry without changing sources',
   assert.equal(result.children.length,1);
   const merged=result.children[0];
   assert.equal(merged.material.length,2);
-  assert.ok(merged.geometry.groups.length>=2); // One or more groups per part/material 
+  assert.ok(merged.geometry.groups.length>=2); // One or more groups per part/material
+  assert.ok(merged.geometry.groups.every(g=>g.materialIndex>=0 && g.materialIndex<merged.material.length)); 
   assert.ok(merged.geometry.getAttribute('uv'));
   assert.ok(Math.abs(new THREE.Box3().setFromObject(result).min.y)<1e-5);
   assert.equal(stone.position.x,originalStoneX);
