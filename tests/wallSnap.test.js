@@ -89,7 +89,12 @@ test('do not snap to an already occupied endpoint',()=>{
  const c=createConstruction('wall',material());root.add(c);
  c.position.x=3.1;
  const result=snapNearbyModule(c,root,{threshold:.5});
- assert.equal(result,null);
+ // The occupied a-B / b-A junction is forbidden, but the free b-B
+ // socket is nearby and may be used instead.
+ assert.ok(result);
+ assert.equal(result.anchor,b);
+ const connected=socketsConnectionError(b,c);
+ near(connected.distance,0,.0001);
 });
 test('imported door / window frames can be fitted inside nearest ready wall opening',()=>{
  const house=createHouse('Дом',3),floor=getFloors(house)[0];

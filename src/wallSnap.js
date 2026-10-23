@@ -38,7 +38,8 @@ function alignSockets(movable,source,target){
   // Rotate about world Y so the socket normals face each other.
   movable.updateWorldMatrix(true,false);
   const desired=target.outward.clone().negate();
-  const angle=Math.atan2(desired.z,desired.x)-Math.atan2(source.outward.z,source.outward.x);
+  // THREE positive Y rotation turns +X towards -Z, opposite to atan2(z,x).
+  const angle=Math.atan2(source.outward.z,source.outward.x)-Math.atan2(desired.z,desired.x);
   const qYaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),angle);
   const worldQuat=movable.getWorldQuaternion(new THREE.Quaternion());
   const parentQuat=movable.parent.getWorldQuaternion(new THREE.Quaternion());
