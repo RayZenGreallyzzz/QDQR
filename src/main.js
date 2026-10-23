@@ -1,5 +1,6 @@
 
 import * as THREE from 'three';
+import {registerPlugin} from '@capacitor/core';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -19,6 +20,8 @@ import {selectionGizmoPose,applyCenteredGizmo} from './editorGizmo.js';
 import {measureScene,validateSceneBounds,mobileSceneBudget,reduceImportedTextureFootprint,ANDROID_LIMITS} from './renderSafety.js';
 
 const $=id=>document.getElementById(id);
+const NativeFileSave=registerPlugin('NativeFileSave');
+let lastExportCache=null;
 const viewport=$('viewport');
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x17202c);
 const camera=new THREE.PerspectiveCamera(48,1,.03,1500);camera.position.set(6,4.4,7);
@@ -1270,24 +1273,42 @@ function arrayBufferToBase64(buf){
   for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
   return btoa(binary);
 }
+// On Android, open the real system "Save As" document picker
+// (Downloads, Documents, SD card, selected cloud folders), not Share-to-Telegram.
 async function downloadBlob(blob,name){
-  try{
-    // Android WebView does not reliably support <a download>. Use Capacitor
-    // cache + system share sheet to allow choosing Files/Drive as a destination.
-    if(window.Capacitor?.isNativePlatform?.()){
-      const [{Filesystem,Directory},{Share}]=await Promise.all([
-        import('@capacitor/filesystem'),import('@capacitor/share')
-      ]);
-      const buffer=await blob.arrayBuffer();
-      const result=await Filesystem.writeFile({path:name,data:arrayBufferToBase64(buffer),directory:Directory.Cache,recursive:true});
-      await Share.share({title:'Phoenix Mesh Workshop · '+name,url:result.uri,dialogTitle:'Сохранить 3D-модель'});
-      notify('Файл готов — выберите, где его сохранить');
-      return;
-    }
-  }catch(e){console.error(e);notify('Android: попробуйте системную отправку ещё раз',true);}
+  if(window.Capacitor?.isNativePlatform?.()){
+    const [{Filesystem,Directory}]=await Promise.all([import('@capacitor/filesystem')]);
+    const buffer=await blob.arrayBuffer();
+    const result=await Filesystem.writeFile({
+      path:name,data:arrayBufferToBase64(buffer),directory:Directory.Cache,recursive:true
+    });
+    lastExportCache={name,uri:result.uri};
+    const ext=name.split('.').pop().toLowerCase();
+    const mime=ext==='png'?'image/png':
+      ext==='obj'?'text/plain':
+      ext==='gltf'?'model/gltf+json':'application/octet-stream';
+    const saved=await NativeFileSave.saveAs({fileName:name,mimeType:mime});
+    if(saved?.canceled){notify('Сохранение отменено — файл можно отправить через «Поделиться».');return false;}
+    if(!saved?.saved)throw new Error('Android не подтвердил сохранение');
+    return true;
+  }
   const url=URL.createObjectURL(blob),link=document.createElement('a');
   link.href=url;link.download=name;document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),20000);
+  return true;
+}
+async function shareLastExport(){
+  if(!window.Capacitor?.isNativePlatform?.())
+    return notify('На компьютере используй обычное «Сохранить».');
+  if(!lastExportCache)return notify('Сначала экспортируй файл GLB, OBJ или STL.',true);
+  try{
+    const {Share}=await import('@capacitor/share');
+    await Share.share({
+      title:'Phoenix Mesh Workshop · '+lastExportCache.name,
+      url:lastExportCache.uri,
+      dialogTitle:'Поделиться готовым файлом'
+    });
+  }catch(e){console.error(e);notify('Не удалось открыть меню отправки: '+e.message,true);}
 }
 async function save(format,subject=root,filename=fileBase,includeHidden=false){
   if(!subject || (!subject.isMesh && !subject.children?.length))return notify('Нечего сохранять',true);
@@ -1306,7 +1327,8 @@ async function save(format,subject=root,filename=fileBase,includeHidden=false){
     } else if(format==='stl'){
       content=new Blob([new STLExporter().parse(subject,{binary:false})],{type:'model/stl'});
     } else throw new Error('Неизвестный формат');
-    await downloadBlob(content,safeName(filename)+'.'+extension);notify('Файл подготовлен: '+safeName(filename)+'.'+extension);
+    const saved=await downloadBlob(content,safeName(filename)+'.'+extension);
+    if(saved)notify('Файл сохранён: '+safeName(filename)+'.'+extension);
   }catch(e){console.error(e);notify('Ошибка экспорта: '+e.message,true);}
   finally{busy=false;setStatus('Готово · модели можно редактировать');}
 }
@@ -1329,6 +1351,7 @@ function initEvents(){
   $('resetCamera').onclick=fitCamera;$('viewFit').onclick=fitCamera;
   $('viewFront').onclick=()=>view('front');$('viewSide').onclick=()=>view('side');$('viewTop').onclick=()=>view('top');
   $('exportBtn').onclick=()=>save('glb');$('saveBtn').onclick=()=>save($('format').value);
+  $('shareExportBtn').onclick=shareLastExport;
   $('clearSelection').onclick=()=>{clearGlassPreview({hidePanel:true});if(openingActive)stopOpening({silent:true});setFacePickMode(false);clearMarkedFaces();select(null);};
   $('undoBtn').onclick=undo;$('redoBtn').onclick=redo;
   $('centerPivot').onclick=centerPivot;$('groundBtn').onclick=ground;

@@ -197,10 +197,10 @@
       <p class="scene-hint">Выбери набор или деталь. «Удалить набор» удалит всю загрузку; «Очистить сцену» — всё содержимое.</p>
       <div class="outline" id="objectTree"><div class="empty">Пока ничего нет</div></div>
       <section><h3>Свойства</h3><p class="hint" id="selectedName">Ничего не выбрано</p><div class="property-row"><label>Имя</label><input id="objectName" placeholder="Имя объекта"/></div><div class="property-row"><label>X / Y / Z (позиция)</label><div class="three"><input id="posX" type="number" step=".05"/><input id="posY" type="number" step=".05"/><input id="posZ" type="number" step=".05"/></div></div><div class="property-row"><label>Масштаб X / Y / Z</label><div class="three"><input id="scaleX" type="number" step=".05"/><input id="scaleY" type="number" step=".05"/><input id="scaleZ" type="number" step=".05"/></div></div></section>
-      <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
+      <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">↥ Сохранить в папку</button></div><button id="shareExportBtn">↗ Поделиться готовым файлом</button><p class="hint">На Android кнопка сохранения открывает системный выбор папки: Загрузки, Документы и другие доступные расположения. Telegram не нужен. GLB сохраняет материалы и декор, OBJ/STL — геометрию.</p></section>
     </aside>
   </div>
-  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.11</span><button id="mobileScene">☷ Сцена</button></footer>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.12</span><button id="mobileScene">☷ Сцена</button></footer>
   <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
   <input id="imagePicker" type="file" accept="image/*" hidden/>
   <div id="toast" role="status" aria-live="polite"></div>

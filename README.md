@@ -196,3 +196,19 @@ importing those files is not by itself proof of a GPU context loss: the warning
 is a diagnostic mechanism to distinguish WebGL failure from camera or scene
 problems on the actual device. This is not an automatic optimizer or mesh
 decimator; it does not reduce geometry detail.
+
+## Native Save As on Android (v0.1.12)
+
+**Save / Export** now uses Android's Storage Access Framework ACTION_CREATE_DOCUMENT.
+This opens the real Android file picker, where the user can select Downloads,
+Documents, removable storage or any configured document provider, edit the
+suggested filename and explicitly save GLB, glTF, OBJ, STL and PNG exports.
+Telegram is no longer needed as an intermediate storage destination.
+
+The exported file is staged to app-private cache via Capacitor Filesystem and
+stream-copied to the chosen Android document Uri by the native
+NativeFileSavePlugin, registered in MainActivity during CI Android generation.
+This does not require broad filesystem permissions. The user can cancel safely
+and retry; **Поделиться готовым файлом** still provides the older sharing
+workflow for users who intentionally want Telegram/Drive/other apps.
+Web versions continue using standard browser downloads.

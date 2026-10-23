@@ -50,6 +50,13 @@ jobs:
         run: |
           npx cap add android
           npx cap sync android
+      - name: Install native Android Save As picker
+        run: |
+          java_dir=android/app/src/main/java/com/phoenix/qdqr/meshworkshop
+          mkdir -p "$java_dir"
+          cp native/android/NativeFileSavePlugin.java "$java_dir/NativeFileSavePlugin.java"
+          cp native/android/MainActivity.java "$java_dir/MainActivity.java"
+          grep -q 'registerPlugin(NativeFileSavePlugin.class)' "$java_dir/MainActivity.java"
       - name: Restore stable debug signing key
         uses: actions/cache@v4
         with:
