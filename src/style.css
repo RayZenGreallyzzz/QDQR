@@ -63,3 +63,20 @@
 .wall-texture-panel .check{font-size:12px}
 .panel-rule{border:0;border-top:1px solid #495568;margin:15px 0}
 #wallBaseName{color:#efca80;min-height:18px}
+
+/* Opening editor: one compact mobile-first workflow. */
+.tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
+.tabs button{font-size:11px;min-width:0;padding:10px 2px}
+.openings-panel h3{color:#f0cd8a}
+.openings-panel>button{width:100%;display:block;min-height:47px;margin:8px 0}
+.openings-panel .opening-type-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:15px 0}
+.opening-type-row button{font-size:12px;min-height:48px;padding:8px 4px}
+.opening-type-row button.active{background:#72572f;border-color:#e4bb70;color:#fff1d5;font-weight:700}
+.openings-panel details{border:1px solid #39495b;border-radius:9px;padding:11px;background:#1a2431;margin:10px 0}
+.openings-panel summary{cursor:pointer;display:flex;justify-content:space-between;font-size:13px;font-weight:600;list-style:none}
+.openings-panel summary::-webkit-details-marker{display:none}
+.openings-panel label.check{margin:11px 0}
+.openings-panel input[type=number]{min-height:42px}
+#openingStatus{color:#e8c683}
+#openingCancelBtn{color:#ccd6e5}
+#openingCutBtn:disabled{opacity:.45}

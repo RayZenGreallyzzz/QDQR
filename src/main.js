@@ -11,6 +11,7 @@ import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, removePickedFaces, countTriangles, createConstruction} from './meshOps.js';
 import {bakeStaticAssembly} from './assemblyOps.js';
 import {projectTextureToWall,attachDecorToWall} from './surfaceOps.js';
+import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOpeningTrim} from './openingOps.js';
 import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility} from './houseOps.js';
 
 const $=id=>document.getElementById(id);
@@ -57,6 +58,18 @@ faceOverlay.name='Редактор: выделенные грани';faceOverlay
 faceOverlay.matrixAutoUpdate=false;scene.add(faceOverlay);
 let facePickEnabled=false,markedFaces=new Set();
 let savedWallBase=null,imagePickMode='separate';
+let openingKind='door',openingTarget=null,openingSpec=null,openingActive=false,openingDragging=false;
+const openingGhost=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({
+  color:0xf0bd5c,opacity:.34,transparent:true,depthWrite:false,
+  side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2
+}));
+openingGhost.renderOrder=999;
+openingGhost.matrixAutoUpdate=false;openingGhost.visible=false;scene.add(openingGhost);
+const openingEdges=new THREE.LineSegments(
+  new THREE.EdgesGeometry(openingGhost.geometry),
+  new THREE.LineBasicMaterial({color:0xffdc8b,depthTest:false})
+);
+openingGhost.add(openingEdges);
 let mode='translate',fileBase='phoenix_module',history=[],future=[],isolate=false,dragged=false,busy=false;
 const lastFiles=[];
 const pointer=new THREE.Vector2(),raycaster=new THREE.Raycaster();
@@ -80,6 +93,7 @@ function snapshot(){
   future=[];
 }
 function restore(snap){
+  if(openingActive)stopOpening({silent:true});
   setFacePickMode(false);markedFaces.clear();updateFaceOverlay();
   transform.detach();selected=null;root.clear();
   const c=cloneDeep(snap);while(c.children.length)root.add(c.children[0]);
@@ -127,6 +141,7 @@ function pendingBatch(){
  return null;
 }
 function deleteBatch(batch=pendingBatch()){
+ if(openingActive)stopOpening({silent:true});
  if(!batch)return notify('Выбери набор в разделе «Сцена»',true);
  const label=batch.name||'Набор';
  if(!window.confirm('Удалить весь набор «'+label+'» со всеми деталями? Другие объекты останутся.'))return;
@@ -429,6 +444,135 @@ async function saveFloorAction(){
   copy.visible=true;
   await save('glb',copy,(currentHouse()?.name||'Дом')+'_'+floor.name,true);
 }
+
+function setOpeningKind(kind){
+  if(!['door','window','arch'].includes(kind))return;
+  openingKind=kind;
+  document.querySelectorAll('.opening-kind').forEach(b=>b.classList.toggle('active',b.dataset.opening===kind));
+  if(!openingActive){
+    $('openingWidth').value=kind==='window'?1.25:1.1;
+    $('openingHeight').value=kind==='window'?1.2:2.15;
+  }else{
+    try{
+      const def=defaultOpening(kind,openingTarget);
+      openingSpec={...def,centerX:openingSpec?.centerX??def.centerX};
+      $('openingWidth').value=openingSpec.width;
+      $('openingHeight').value=openingSpec.height;
+      updateOpeningPreview();
+    }catch(e){notify(e.message,true);}
+  }
+}
+function updateOpeningPreview(){
+  if(!openingActive||!openingTarget||!openingSpec){
+    openingGhost.visible=false;return;
+  }
+  const w=Number($('openingWidth').value),h=Number($('openingHeight').value);
+  if(!Number.isFinite(w)||!Number.isFinite(h)||w<.3||h<.4||w>15||h>15){
+    $('openingCutBtn').disabled=true;$('openingStatus').textContent='Размеры должны быть положительными и не больше 15 м';
+    return;
+  }
+  const b=getWallBounds(openingTarget),sz=b.getSize(new THREE.Vector3());
+  openingSpec.width=w;openingSpec.height=h;
+  openingSpec.centerX=THREE.MathUtils.clamp(openingSpec.centerX,b.min.x+w/2,b.max.x-w/2);
+  // A full door starts at the wall's bottom. Windows have freely movable sill.
+  if(openingKind==='door'||openingKind==='arch')openingSpec.centerY=b.min.y+h/2;
+  else openingSpec.centerY=THREE.MathUtils.clamp(openingSpec.centerY,b.min.y+h/2,b.max.y-h/2);
+  openingSpec.centerZ=b.getCenter(new THREE.Vector3()).z;
+  openingSpec.thickness=Math.max(sz.z+.65,.8);
+  openingSpec.kind=openingKind;
+  const safe=w<=sz.x+.001&&h<=sz.y+.001;
+  $('openingCutBtn').disabled=!safe;
+  $('openingStatus').textContent=safe?
+    'Контур на стене · веди пальцем для перемещения · затем «Вырезать»':
+    'Проём больше стены. Уменьши ширину или высоту.';
+  const old=openingGhost.geometry;
+  openingGhost.geometry=createOpeningGeometry(openingKind,w,h,openingSpec.thickness);
+  openingEdges.geometry.dispose();openingEdges.geometry=new THREE.EdgesGeometry(openingGhost.geometry);
+  if(old)old.dispose();
+  const local=new THREE.Matrix4().makeTranslation(openingSpec.centerX,openingSpec.centerY,openingSpec.centerZ);
+  openingTarget.updateWorldMatrix(true,false);
+  openingGhost.matrix.copy(openingTarget.matrixWorld).multiply(local);
+  openingGhost.matrixWorldNeedsUpdate=true;openingGhost.visible=true;
+}
+function stopOpening({silent=false}={}){
+  openingActive=false;openingDragging=false;openingTarget=null;openingSpec=null;
+  openingGhost.visible=false;
+  $('openingCutBtn').disabled=true;$('openingStartBtn').disabled=false;$('openingCancelBtn').disabled=true;
+  $('openingStatus').textContent='Выбери стену, затем нажми «Разметить проём».';
+  orbit.enabled=true;
+  if(!facePickEnabled&&selected)transform.attach(selected);
+  if(!silent)notify('Разметка отменена. Камера снова свободна.');
+}
+function startOpening(){
+  if(openingActive)stopOpening({silent:true});
+  if(facePickEnabled)setFacePickMode(false);
+  if(!selected)return notify('Сначала коснись нужной стены на сцене',true);
+  if(selected.userData?.qdqrHouse || selected.userData?.qdqrFloor){
+    return notify('Выбери именно стену, а не целый дом или этаж',true);
+  }
+  try{
+    const spec=defaultOpening(openingKind,selected);
+    const faces=countTriangles(selected).triangles;
+    if(faces>(lowMemoryMobile?45000:100000))
+      throw new Error('Стена слишком тяжёлая для вырезания на планшете. Сначала раздели её.');
+    openingTarget=selected;openingSpec=spec;openingActive=true;
+    $('openingWidth').value=spec.width.toFixed(2);
+    $('openingHeight').value=spec.height.toFixed(2);
+    transform.detach();selectionBox.visible=false;orbit.enabled=false;
+    $('openingStartBtn').disabled=true;$('openingCancelBtn').disabled=false;
+    updateOpeningPreview();
+    $('openingStatus').textContent='Перемести золотой контур пальцем на нужное место стены.';
+    // Free up the viewport on narrow phones without requiring a back control.
+    if(window.matchMedia('(max-width:740px)').matches)
+      document.querySelector('.sidebar.left').classList.remove('mobile-open');
+  }catch(e){openingActive=false;openingTarget=null;notify('Проём: '+e.message,true);}
+}
+function placeOpeningFromPointer(e){
+  if(!openingActive||!openingTarget)return false;
+  const r=renderer.domElement.getBoundingClientRect();
+  const cursor=new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);
+  raycaster.setFromCamera(cursor,camera);
+  const roots=openingTarget.isMesh?[openingTarget]:openingTarget.children;
+  const hits=raycaster.intersectObjects(roots,true).filter(x=>x.object.isMesh&&!x.object.userData?.qdqrOpeningTrim);
+  if(!hits.length)return false;
+  const point=openingTarget.worldToLocal(hits[0].point.clone());
+  openingSpec.centerX=point.x;
+  if(openingKind==='window')openingSpec.centerY=point.y;
+  updateOpeningPreview();
+  return true;
+}
+async function commitOpening(){
+  if(!openingActive||!openingTarget||!openingSpec)return notify('Сначала разметь проём',true);
+  if($('openingCutBtn').disabled)return;
+  const target=openingTarget;
+  const spec={...openingSpec};
+  $('openingCutBtn').disabled=true;
+  $('openingStatus').textContent='Вырезаю отверстие и формирую откосы…';
+  await new Promise(resolve=>requestAnimationFrame(resolve));
+  try{
+    // The geometry editor keeps its own undo state; never partially modify
+    // any mesh on CSG error. All cuts are computed before being committed.
+    const total=countTriangles(target).triangles;
+    if(total>(lowMemoryMobile?45000:100000))
+      throw new Error('Стена слишком тяжёлая; сначала разбей её на секции');
+    snapshot();
+    const res=cutWallOpening(target,spec,{maxTotalFaces:lowMemoryMobile?45000:100000});
+    if($('openingFrame').checked || $('openingLeaf').checked){
+      target.add(makeOpeningTrim(spec,{
+        addFrame:$('openingFrame').checked,
+        addLeaf:$('openingLeaf').checked
+      }));
+    }
+    stopOpening({silent:true});
+    select(target);
+    notify('Готово: настоящий проём в '+res.count+' частях стены. Сохрани GLB.');
+  }catch(e){
+    console.error(e);
+    $('openingStatus').textContent='Не удалось вырезать. Можно изменить размеры и повторить.';
+    $('openingCutBtn').disabled=false;
+    notify('Ошибка вырезания: '+e.message,true);
+  }
+}
 function activeMaterial(){
   return new THREE.MeshStandardMaterial({color:$('decorColor').value,metalness:Number($('metal').value),roughness:Number($('rough').value),side:THREE.DoubleSide});
 }
@@ -451,6 +595,7 @@ function addPart(type){
   addObject(mesh);
 }
 function newScene(){
+  if(openingActive)stopOpening({silent:true});
   if(root.children.length && !window.confirm('Очистить всю сцену? Сначала сохраните нужные модели.'))return;
   setFacePickMode(false);clearMarkedFaces();
   snapshot();root.clear();select(null);fileBase='phoenix_module';
@@ -894,11 +1039,16 @@ function initEvents(){
   $('resetCamera').onclick=fitCamera;$('viewFit').onclick=fitCamera;
   $('viewFront').onclick=()=>view('front');$('viewSide').onclick=()=>view('side');$('viewTop').onclick=()=>view('top');
   $('exportBtn').onclick=()=>save('glb');$('saveBtn').onclick=()=>save($('format').value);
-  $('clearSelection').onclick=()=>{setFacePickMode(false);clearMarkedFaces();select(null);};
+  $('clearSelection').onclick=()=>{if(openingActive)stopOpening({silent:true});setFacePickMode(false);clearMarkedFaces();select(null);};
   $('undoBtn').onclick=undo;$('redoBtn').onclick=redo;
   $('centerPivot').onclick=centerPivot;$('groundBtn').onclick=ground;
   $('deleteBtn').onclick=deleteSelection;$('isolateBtn').onclick=isolateSelection;
   $('bakeBtn').onclick=bakeAll;
+  for(const b of document.querySelectorAll('[data-opening]'))b.onclick=()=>setOpeningKind(b.dataset.opening);
+  $('openingStartBtn').onclick=startOpening;
+  $('openingCancelBtn').onclick=()=>stopOpening();
+  $('openingCutBtn').onclick=commitOpening;
+  for(const id of ['openingWidth','openingHeight'])$(id).addEventListener('input',()=>{if(openingActive)updateOpeningPreview();});
   $('createHouseBtn').onclick=createHouseAction;
   $('addFloorBtn').onclick=addFloorAction;
   $('duplicateFloorBtn').onclick=duplicateFloorAction;
@@ -963,6 +1113,7 @@ function initEvents(){
     },undefined,()=>{notify('Не удалось прочитать изображение',true);URL.revokeObjectURL(url);});
   };
   document.querySelectorAll('#toolTabs button').forEach(b=>b.onclick=()=>{
+    if(openingActive&&b.dataset.tab!=='openings')stopOpening({silent:true});
     document.querySelectorAll('#toolTabs button').forEach(n=>n.classList.remove('active'));
     document.querySelectorAll('.tab-page').forEach(n=>n.classList.remove('active'));
     b.classList.add('active');$('tab-'+b.dataset.tab).classList.add('active');
@@ -972,6 +1123,25 @@ function initEvents(){
   transform.addEventListener('dragging-changed',event=>{orbit.enabled=!event.value;if(event.value){snapshot();dragged=true;}else{refresh();selectionBox.visible=!!selected;}});
   transform.addEventListener('objectChange',()=>{if(selected){selectionBox.setFromObject(selected);updateProperties();}});
   let down=null;
+  // While marking a doorway, a single finger drags the cutter instead of
+  // rotating the scene; multi-touch navigation returns after Cancel/Commit.
+  renderer.domElement.addEventListener('pointerdown',e=>{
+    if(!openingActive||!e.isPrimary)return;
+    openingDragging=true;
+    placeOpeningFromPointer(e);
+    e.stopImmediatePropagation();e.preventDefault();
+  },true);
+  renderer.domElement.addEventListener('pointermove',e=>{
+    if(!openingActive||!openingDragging)return;
+    placeOpeningFromPointer(e);
+    e.stopImmediatePropagation();e.preventDefault();
+  },true);
+  renderer.domElement.addEventListener('pointerup',e=>{
+    if(!openingActive)return;
+    openingDragging=false;
+    e.stopImmediatePropagation();e.preventDefault();
+  },true);
+  renderer.domElement.addEventListener('pointercancel',()=>{openingDragging=false;},true);
   renderer.domElement.addEventListener('pointerdown',e=>{if(!e.isPrimary){down=null;return;}down={x:e.clientX,y:e.clientY,id:e.pointerId,time:performance.now()};});
   renderer.domElement.addEventListener('pointerup',e=>{
     if(!down || e.pointerId!==down.id || (!orbit.enabled&&!facePickEnabled))return;
@@ -990,6 +1160,7 @@ function initEvents(){
     if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;
     if(e.key==='Delete'){if(facePickEnabled&&markedFaces.size)deleteMarkedFaces();else deleteSelection();}
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){e.preventDefault();duplicateSelected();}
+    if(e.key==='Escape'&&openingActive)stopOpening();
     if(e.key==='Escape'&&facePickEnabled)setFacePickMode(false);
     if(e.key.toLowerCase()==='f')focusSelected();
     if(e.key.toLowerCase()==='h')setCameraNavigation(cameraNavMode==='pan'?'orbit':'pan');

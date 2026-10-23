@@ -110,3 +110,14 @@ In the tablet's **Инструменты → Декор → Текстуры и 
 3. The panel is now a child of the wall; save the wall as one selected GLB. Materials/UVs remain on both parts, so both display on reimport. The new attachment is editable separately in the hierarchy; no texture atlas is generated.
 
 Caveat: if imported meshes have unusual orientations or complex topology, auto-fit may need manual adjustment. The preview has no native GLB reimport smoke test on a physical device. The output stores PBR texture images and geometry in a single GLB binary when supported by Three.js exporter.
+
+## Door, window and arched opening tool (v0.1.7)
+
+1. Select one wall or a group of adjacent solid wall sections, then open **Проёмы**.
+2. Choose **Дверь / Окно / Арка**, press **Разметить проём**. A golden translucent cutter preview appears over the wall. Tap or drag across the wall to position it. Optional **Точные размеры** controls width/height; the editor estimates wall thickness and aligns to floor/window sill.
+3. Choose an optional simple frame or door leaf/window glass, then press **Вырезать и установить**.
+4. CSG subtraction removes the opening from each affected wall mesh. The resulting 3D meshes have actual holes, not an overlay. Undo reverts a cut. Use **Модули → Сохранить выбранный GLB** on the wall to export just the wall with its new frame, or save the entire house in GLB.
+
+**Supported:** closed, static watertight meshes, such as wall boxes, some imported wall sections. Multi-mesh groups are cut per intersecting mesh. Per-part textures are retained where original UV faces survive; new reveal/jamb triangles receive a matching default material and may need a texture adjustment. Simple generated frames/leaves are game previews, not automatic positioning of arbitrary imported door assets.
+
+**Restrictions:** Complex open or non-manifold meshes may fail a boolean, so the editor refuses the cut without changing the wall. For safety, the operation limits dense triangles on Android. Pan/orbit camera mode is paused while positioning a cutout and restored on commit/cancel. Use Undo to reposition after applying the cut; editing an applied cut as a live parametric modifier is not yet supported. Collision meshes in Godot must be regenerated to respect the new opening.

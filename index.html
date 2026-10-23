@@ -19,7 +19,7 @@
   <div class="workspace">
     <aside class="sidebar left">
       <div class="panel-heading">Инструменты <span>3D</span></div>
-      <div class="tabs" id="toolTabs"><button class="active" data-tab="edit">Правка</button><button data-tab="build">Модули</button><button data-tab="decor">Декор</button></div>
+      <div class="tabs" id="toolTabs"><button class="active" data-tab="edit">Правка</button><button data-tab="build">Модули</button><button data-tab="decor">Декор</button><button data-tab="openings">Проёмы</button></div>
       <div class="tab-page active" id="tab-edit">
         <section><h3>Выбор и трансформации</h3><div class="tool-grid"><button data-mode="translate" class="mode active">↔ Переместить</button><button data-mode="rotate" class="mode">⟳ Повернуть</button><button data-mode="scale" class="mode">▣ Масштаб</button><button id="clearSelection">× Снять выбор</button></div><label class="check"><input id="snap" type="checkbox" checked/> Магнитная сетка (0,25 м)</label><button id="centerPivot">Центрировать опору</button>
         <h3 style="margin-top:18px">Копирование детали</h3><div class="copy-controls"><select id="copyDirection" aria-label="Направление копирования"><option value="x+">Справа →</option><option value="x-">Слева ←</option><option value="z-">Вперёд ↑</option><option value="z+">Назад ↓</option></select><button class="primary" id="duplicateBtn">⧉ Копировать рядом</button></div>
@@ -96,6 +96,32 @@
         </section>
         <section><h3>Размер выделенной детали</h3><label>Ширина X, м</label><input id="dimX" type="number" min=".01" step=".05" value="2.50"/><label>Высота Y, м</label><input id="dimY" type="number" min=".01" step=".05" value="2.50"/><label>Глубина Z, м</label><input id="dimZ" type="number" min=".01" step=".05" value=".25"/><button id="sizeBtn" class="primary">Применить размеры</button><p class="hint">Масштаб меняется отдельно по осям. Геометрия не срезается.</p></section>
       </div>
+<div class="tab-page" id="tab-openings">
+        <section class="openings-panel">
+          <h3>Проём в стене</h3>
+          <p class="hint">Выбери стену на сцене. Затем нажми «Разметить проём», перемести золотой контур пальцем и нажми «Вырезать».</p>
+          <div class="opening-type-row">
+            <button data-opening="door" class="opening-kind active">Дверь</button>
+            <button data-opening="window" class="opening-kind">Окно</button>
+            <button data-opening="arch" class="opening-kind">Арка</button>
+          </div>
+          <button id="openingStartBtn" class="primary">1 · Разметить проём</button>
+          <p id="openingStatus" class="hint">Сначала выбери стену или группу каменных секций.</p>
+          <details id="openingDetails">
+            <summary>Точные размеры <span>⌄</span></summary>
+            <div class="two">
+              <div><label for="openingWidth">Ширина, м</label><input id="openingWidth" type="number" min=".3" max="15" step=".05" value="1.1"/></div>
+              <div><label for="openingHeight">Высота, м</label><input id="openingHeight" type="number" min=".4" max="15" step=".05" value="2.1"/></div>
+            </div>
+            <p class="hint">Положение выбирается касанием стены. У двери низ автоматически ставится на пол, у окна — выше.</p>
+          </details>
+          <label class="check"><input type="checkbox" id="openingFrame" checked/> Добавить простую раму</label>
+          <label class="check"><input type="checkbox" id="openingLeaf"/> Добавить дверь / стекло</label>
+          <button id="openingCutBtn" class="accent" disabled>2 · Вырезать и установить</button>
+          <button id="openingCancelBtn" disabled>Отмена / Камера</button>
+          <p class="hint">Отверстие действительно вырезается в геометрии. Для сложных импортированных сеток операция может быть недоступна. Исходную стену можно вернуть через «Отменить».</p>
+        </section>
+      </div>
       <div class="tab-page" id="tab-decor">
         <section><h3>Объёмный декор</h3><div class="preset-grid"><button data-add="box">▢ Блок</button><button data-add="sphere">● Сфера</button><button data-add="cylinder">⬡ Цилиндр</button><button data-add="torus">◯ Кольцо</button><button data-add="plane">▭ Картина</button><button data-add="plaque">▣ Табличка</button></div><label>Цвет материала</label><input id="decorColor" type="color" value="#bd9568"/><label>Металличность <output id="metalVal">0.2</output></label><input id="metal" type="range" min="0" max="1" step=".05" value=".2"/><label>Шероховатость <output id="roughVal">0.7</output></label><input id="rough" type="range" min="0" max="1" step=".05" value=".7"/><button id="materialBtn">Применить материал</button></section>
         <section class="wall-texture-panel"><h3>▧ Текстуры и отделка стен</h3>
@@ -137,7 +163,7 @@
       <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
     </aside>
   </div>
-  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.6</span><button id="mobileScene">☷ Сцена</button></footer>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.7</span><button id="mobileScene">☷ Сцена</button></footer>
   <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
   <input id="imagePicker" type="file" accept="image/*" hidden/>
   <div id="toast" role="status" aria-live="polite"></div>
