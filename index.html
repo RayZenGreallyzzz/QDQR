@@ -72,7 +72,11 @@
             <option value="arch">Арка</option>
           </select>
           <button id="placeHousePresetBtn" class="primary">▤ Добавить модуль рядом</button>
-          <p class="hint">Новые модули ставятся рядом по X с шагом 0,25 м. Потом их можно передвигать, вращать, менять размер и копировать.</p>
+          <label class="check"><input type="checkbox" id="autoJoinWalls" checked/> Автостыковка стен и углов</label>
+          <button id="manualJoinBtn">↔ Состыковать выбранное</button>
+          <p class="hint">Стены, круглые углы, оконные и дверные модули состыковываются по центральной линии. Можно подвигать элемент ближе — он сам пристыкуется. Выключи галочку для свободного перемещения.</p>
+          <button id="installInOpeningBtn">▣ Вставить выбранную раму / дверь в проём</button>
+          <p class="hint">Выбери импортированную модель и активный этаж с готовым проёмом. Приложение подгонит её в ближайший оконный или дверной проём; при необходимости поправь вручную.</p>
           <h3 class="house-subtitle">Сохранение</h3>
           <button id="saveFloorBtn">↥ Сохранить этаж GLB</button>
           <button id="saveHouseBtn" class="accent">↥ Сохранить весь дом GLB</button>
@@ -196,7 +200,7 @@
       <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
     </aside>
   </div>
-  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.8</span><button id="mobileScene">☷ Сцена</button></footer>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.9</span><button id="mobileScene">☷ Сцена</button></footer>
   <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
   <input id="imagePicker" type="file" accept="image/*" hidden/>
   <div id="toast" role="status" aria-live="polite"></div>

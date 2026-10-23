@@ -151,6 +151,9 @@ export function createConstruction(type, material){
       s.closePath();
       const g=new THREE.ExtrudeGeometry(s,{depth:2.6,bevelEnabled:false,curveSegments:24,steps:1});
       g.rotateX(-Math.PI/2);
+      // Centerline radius = 1.125 m. Put the start of the CENTERLINE on
+      // the construction grid origin, not the curved mesh's outer edge.
+      g.translate(-(inner+outer)/2,0,0);
       // after rotation extrusion z becomes +y
       g.computeVertexNormals();
       const m=new THREE.Mesh(g,material.clone());m.name='Закруглённый угол 90°';m.castShadow=true;m.receiveShadow=true;group.add(m);
@@ -161,6 +164,29 @@ export function createConstruction(type, material){
     case 'column':{const m=new THREE.Mesh(new THREE.CylinderGeometry(.28,.33,2.7,16),material.clone());m.name='Колонна';m.position.y=1.35;group.add(m);box('База',.85,.19,.85,0,.095);box('Капитель',.8,.19,.8,0,2.8);break;}
     case 'roof':{const m=box('Скат А',2.2,.16,3,-.8,2,0);m.rotation.z=Math.PI/5;const n=box('Скат Б',2.2,.16,3,.8,2,0);n.rotation.z=-Math.PI/5;break;}
     case 'arch':box('Левая колонна',.45,2.6,.5,-1.2,1.3);box('Правая колонна',.45,2.6,.5,1.2,1.3);box('Верхняя балка',2.85,.45,.5,0,2.8);break;
+  }
+  // Building wall-type modules share the exact same wall-axis / 25cm thickness.
+  // Sockets are in module LOCAL coordinates (Y=0 at foundation). They survive
+  // group rotations, scaling and glTF export in userData.
+  if(['wall','window','door','corner'].includes(type)){
+    group.userData.qdqrBuildType=type;
+    group.userData.qdqrWallThickness=.25;
+    const r=1.125;
+    const points=type==='corner'
+      ?[{id:'A',point:[0,0,0],outward:[0,0,1]},
+        {id:'B',point:[-r,0,-r],outward:[-1,0,0]}]
+      :[{id:'A',point:[-1.5,0,0],outward:[-1,0,0]},
+        {id:'B',point:[1.5,0,0],outward:[1,0,0]}];
+    group.userData.qdqrWallSockets=points.map(s=>({...s,thickness:.25}));
+    group.userData.qdqrWallAxis='centerline';
+    // Opening dimensions are derived from the actual wall preset geometry:
+    // DOOR 1.2m x 2.05m bottom=0; WINDOW 1.4m x .9m sill=1.05m.
+    if(type==='door')group.userData.qdqrOpening={
+      kind:'door',centerX:0,centerY:1.025,width:1.2,height:2.05,depth:.25
+    };
+    if(type==='window')group.userData.qdqrOpening={
+      kind:'window',centerX:0,centerY:1.5,width:1.4,height:.9,depth:.25
+    };
   }
   return group;
 }

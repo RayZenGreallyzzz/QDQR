@@ -95,3 +95,6 @@
 .glass-panel #glassOptions[hidden],#glassStainedOptions[hidden]{display:none}
 .glass-panel #glassStatus{color:#bddeed}
 @media(max-width:980px){.glass-panel button{min-height:48px}}
+
+.house-builder-panel #manualJoinBtn,.house-builder-panel #installInOpeningBtn{min-height:46px}
+.house-builder-panel .check{margin:11px 0 5px}

@@ -13,7 +13,8 @@ import {bakeStaticAssembly} from './assemblyOps.js';
 import {projectTextureToWall,attachDecorToWall} from './surfaceOps.js';
 import {captureFrameSilhouette,buildGlassPieces} from './glassOps.js';
 import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOpeningTrim} from './openingOps.js';
-import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility} from './houseOps.js';
+import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility,fitInsertToOpening} from './houseOps.js';
+import {dockNewModule,snapNearbyModule,isWallModule} from './wallSnap.js';
 
 const $=id=>document.getElementById(id);
 const viewport=$('viewport');
@@ -413,11 +414,37 @@ function placePresetAction(){
   const floor=currentFloor();
   if(!floor)return notify('Сначала выбери этаж',true);
   try{
+    const preferred=selected && isWallModule(selected) && selected.parent===floor?selected:null;
     snapshot();
-    const module=addPresetToFloor(floor,$('housePreset').value,activeMaterial(),.25);
+    const module=addPresetToFloor(floor,$('housePreset').value,activeMaterial(),.25,
+      {preferred:$('autoJoinWalls').checked?preferred:null});
     select(module);
-    notify('Добавлен модуль на '+floor.name+'. Можно вращать и менять размеры.');
+    notify(module.userData.qdqrLastJoin?
+      'Модуль автоматически состыкован по центральной оси стены.':
+      'Модуль добавлен на '+floor.name+'. Можно переместить или повернуть.');
   }catch(e){notify(e.message,true);}
+}
+
+function manualJoinWalls(){
+  if(!selected||!isWallModule(selected))return notify('Выбери прямую стену, угол, дверной или оконный проём',true);
+  const container=selected.parent||root;
+  snapshot();
+  const result=snapNearbyModule(selected,container,{threshold:1.2});
+  if(!result)return notify('Рядом не найден свободный стык. Подвинь деталь ближе.',true);
+  select(selected);
+  notify('Стыковка выполнена точно по центральной оси. Без зазора.');
+}
+function installInsertAction(){
+  const floor=currentFloor(),insert=selected;
+  if(!floor)return notify('Сначала выбери этаж с готовым дверным/оконным проёмом',true);
+  if(!insert)return notify('Выбери импортированную дверную или оконную раму',true);
+  if(isWallModule(insert))return notify('Выбери саму раму/дверь, а не стену с проёмом',true);
+  try{
+    snapshot();
+    const result=fitInsertToOpening(floor,insert);
+    select(insert);
+    notify('Модель установлена в '+(result.module.userData.qdqrBuildType==='door'?'дверной':'оконный')+' проём. Масштаб подогнан.');
+  }catch(e){console.error(e);notify('Установка в проём: '+e.message,true);}
 }
 function seatPartAction(){
   const floor=currentFloor(),part=selected;
@@ -727,8 +754,13 @@ function activeMaterial(){
   return new THREE.MeshStandardMaterial({color:$('decorColor').value,metalness:Number($('metal').value),roughness:Number($('rough').value),side:THREE.DoubleSide});
 }
 function addObject(m){
-  snapshot();root.add(m);select(m);if(root.children.length===1)fitCamera();
-  notify('Добавлено. Объект можно перемещать и сохранять.');
+  const preferred=selected && isWallModule(selected)?selected:null;
+  snapshot();root.add(m);
+  let join=null;
+  if(isWallModule(m) && $('autoJoinWalls').checked)
+    join=dockNewModule(m,root,{preferred});
+  select(m);if(root.children.length===1)fitCamera();
+  notify(join?'Модуль состыкован по центральной оси.':'Добавлено. Объект можно перемещать и сохранять.');
 }
 function addPart(type){
   const mt=activeMaterial();
@@ -1206,6 +1238,8 @@ function initEvents(){
   $('focusFloorBtn').onclick=focusFloorAction;
   $('seatFloorBtn').onclick=seatPartAction;
   $('placeHousePresetBtn').onclick=placePresetAction;
+  $('manualJoinBtn').onclick=manualJoinWalls;
+  $('installInOpeningBtn').onclick=installInsertAction;
   $('saveFloorBtn').onclick=saveFloorAction;
   $('saveHouseBtn').onclick=saveHouseAction;
   $('houseTarget').onchange=refreshHouseTargets;
@@ -1284,7 +1318,18 @@ function initEvents(){
   });
   $('mobileTools').onclick=()=>{$('mobileTools').classList.toggle('active');document.querySelector('.sidebar.left').classList.toggle('mobile-open');document.querySelector('.sidebar.right').classList.remove('mobile-open');};
   $('mobileScene').onclick=()=>{document.querySelector('.sidebar.right').classList.toggle('mobile-open');document.querySelector('.sidebar.left').classList.remove('mobile-open');};
-  transform.addEventListener('dragging-changed',event=>{orbit.enabled=!event.value;if(event.value){snapshot();dragged=true;}else{refresh();selectionBox.visible=!!selected;}});
+  transform.addEventListener('dragging-changed',event=>{
+    orbit.enabled=!event.value;
+    if(event.value){snapshot();dragged=true;}
+    else{
+      if($('autoJoinWalls').checked&&selected&&isWallModule(selected)){
+        const snap=snapNearbyModule(selected,selected.parent||root,{threshold:.55});
+        if(snap)notify('Автостыковка: центральные линии совпали.');
+      }
+      refresh();selectionBox.visible=!!selected;
+      if(selected)selectionBox.setFromObject(selected);
+    }
+  });
   transform.addEventListener('objectChange',()=>{if(selected){selectionBox.setFromObject(selected);updateProperties();}});
   let down=null;
   // While marking a doorway, a single finger drags the cutter instead of
