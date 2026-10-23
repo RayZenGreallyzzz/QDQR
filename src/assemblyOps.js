@@ -21,6 +21,9 @@ export function bakeStaticAssembly(source,{merge=true,pivot='bottom-center',maxT
     if(!obj.geometry?.getAttribute('position'))throw new Error('В одном из объектов нет вершин');
     if(Object.keys(obj.geometry.morphAttributes||{}).length)throw new Error('Морф-цели не поддерживаются для модульного запекания');
     const src=obj.geometry;
+    const estimatedFaces=Math.floor((src.index?src.index.count:src.getAttribute('position').count)/3);
+    if(triangles+estimatedFaces>maxTriangles)
+      throw new Error('Сборка слишком тяжёлая для безопасного запекания на планшете. Упростите её.');
     const nonIndexed=src.index ? src.toNonIndexed() : src.clone();
     const relative=inverse.clone().multiply(obj.matrixWorld);
     nonIndexed.applyMatrix4(relative);
