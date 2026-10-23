@@ -8,13 +8,16 @@ import * as THREE from 'three';
 export function bakeStaticAssembly(source,{merge=true,pivot='bottom-center',maxTriangles=240000}={}){
   if(!source?.isObject3D)throw new Error('Не выбрана конструкция');
   source.updateWorldMatrix(true,true);
-  const inverse=source.matrixWorld.clone().invert();
+  // Bake the current world-space appearance, including the top-level group's
+  // scale and rotation, into the exported vertices.
+  const inverse=new THREE.Matrix4();
   const baked=[];
   let triangles=0;
   source.traverse(obj=>{
     if(obj.isSkinnedMesh)throw new Error('Скелетные модели нельзя запечь как статическую конструкцию');
     if(!obj.isMesh)return;
-    if(!obj.visible)return;
+    let visible=true;for(let p=obj;p;p=p.parent){if(!p.visible){visible=false;break;}}
+    if(!visible)return;
     if(!obj.geometry?.getAttribute('position'))throw new Error('В одном из объектов нет вершин');
     if(Object.keys(obj.geometry.morphAttributes||{}).length)throw new Error('Морф-цели не поддерживаются для модульного запекания');
     const src=obj.geometry;
