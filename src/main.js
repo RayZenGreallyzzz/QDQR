@@ -10,7 +10,7 @@ import {OBJExporter} from 'three/addons/exporters/OBJExporter.js';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, removePickedFaces, countTriangles, createConstruction} from './meshOps.js';
 import {bakeStaticAssembly} from './assemblyOps.js';
-import {projectTextureToWall,attachDecorToWall} from './surfaceOps.js';
+import {projectTextureToModule,attachDecorToWall} from './surfaceOps.js';
 import {captureFrameSilhouette,buildGlassPieces} from './glassOps.js';
 import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOpeningTrim} from './openingOps.js';
 import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility,fitInsertToOpening} from './houseOps.js';
@@ -1118,19 +1118,20 @@ async function saveDecorWall(){
     await save('glb',baked,(wall.name||'Стена')+'_с_декором');
   }catch(e){console.error(e);notify('Ошибка сохранения стены: '+e.message,true);}
 }
-function loadWallImage(file){
+function loadModuleTexture(file){
   if(!selected||!countTriangles(selected).meshes){
-    notify('Сначала выбери стену или группу стен',true);return;
+    notify('Сначала выбери модуль, крышу, пол или группу деталей',true);return;
   }
   const target=selected;
   const readerUrl=URL.createObjectURL(file);
   new THREE.TextureLoader().load(readerUrl,tex=>{
     try{
       tex.colorSpace=THREE.SRGBColorSpace;
+      tex.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());
       // GLTF exporter handles flipping internal textures according to glTF convention.
       tex.wrapS=tex.wrapT=$('textureMode').value==='tile'?THREE.RepeatWrapping:THREE.ClampToEdgeWrapping;
       snapshot();
-      const result=projectTextureToWall(target,tex,{
+      const result=projectTextureToModule(target,tex,{
         mode:$('textureMode').value,
         tileMeters:Number($('textureTileMeters').value)
       });
@@ -1138,7 +1139,7 @@ function loadWallImage(file){
       savedWallBase=target;
       $('wallBaseName').textContent='Основа: '+(target.name||'Стена');
       select(target);
-      notify('Текстура нанесена на '+result.meshes+' мешей: '+result.width.toFixed(2)+' × '+result.height.toFixed(2)+' м. Сохраняй GLB.');
+      notify('Покрытие нанесено на '+result.meshes+' деталей. Размеры модулей не изменены. Сохраняй GLB.');
     }catch(e){console.error(e);notify('Ошибка текстуры: '+e.message,true);}
     finally{URL.revokeObjectURL(readerUrl);}
   },undefined,e=>{console.error(e);URL.revokeObjectURL(readerUrl);notify('Не удалось загрузить изображение',true);});
@@ -1338,14 +1339,14 @@ function initEvents(){
   $('attachDecorBtn').onclick=attachSelectedWallDecor;
   $('saveDecorWallBtn').onclick=saveDecorWall;
   $('applyWallTextureBtn').onclick=()=>{
-    if(!selected || !countTriangles(selected).meshes)return notify('Сначала выбери стену',true);
-    imagePickMode='wall';$('imagePicker').click();
+    if(!selected || !countTriangles(selected).meshes)return notify('Сначала выбери модуль или группу модулей',true);
+    imagePickMode='surface';$('imagePicker').click();
   };
   $('textureBtn').onclick=()=>{imagePickMode='separate';$('imagePicker').click();};
   $('imagePicker').onchange=e=>{
     const f=e.target.files[0];e.target.value='';
     if(!f)return;
-    if(imagePickMode==='wall'){loadWallImage(f);return;}
+    if(imagePickMode==='surface'){loadModuleTexture(f);return;}
     const url=URL.createObjectURL(f);
     new THREE.TextureLoader().load(url,tx=>{
       tx.colorSpace=THREE.SRGBColorSpace;addEmblem(tx);setTimeout(()=>URL.revokeObjectURL(url),10000);

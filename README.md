@@ -141,3 +141,31 @@ For Android performance, preview masks are capped at moderate resolution and at 
 - Existing imported walls and decorative assets remain editable and do not automatically snap: their geometry has no trustworthy authored endpoint sockets.
 - Stock **door/window** modules already have physical open recesses and exactly the same wall centerline as a straight wall. Select an imported door/window/frame and use **Вставить выбранную раму / дверь в проём** on an active house floor to size and align the selected import to the nearest preset opening. This is positioning/scaling only: no CSG is needed for these preset modules. For a solid wall use the **Проёмы** cutter first.
 - Saving a full house, single floor, or selected assembly preserves all transforms. Complex curved/reprofiled meshes may require manual correction; fitting arbitrary imported assets cannot guarantee their artistic orientation.
+
+## Texture mapping on every construction module (v0.1.10)
+
+In **Декор → Текстуры для всех модулей**, select an individual module or a group of
+walls/arches/floors/ceilings/roof pieces, then **Нанести текстуру на выбранное**.
+The image modifies diffuse materials directly, not module dimensions or extra geometry.
+The existing two modes still work: **one image** (stretch over the selected surface)
+or **repeating texture** with user-entered meters per tile. GLB export preserves both
+geometry and material maps.
+
+The new surface-aware UV mapper projects onto each triangular face:
+- vertical faces: natural XY or ZY depending on their orientation;
+- floors, ceilings, underside of roof and horizontal slabs: XZ;
+- sloping roof faces: XZ corrected for true length along the slope;
+- built-in rounded 90-degree corner: angular distance around the centerline,
+  with radial UV on caps and XZ UV for the horizontal top/bottom.
+
+This eliminates zero-area UV triangles from projecting horizontal floors onto XY,
+the main cause of the brushed/smeared image observed on those modules. The original
+mesh geometry is never scaled. The chosen image is shared across a multi-module
+selection. Existing paintings, decals and stained glass are excluded from replacing
+the structural texture.
+
+Limitations: UV unwrapping is still automatic planar/arc projection; arbitrary
+organic 3D objects and joints spanning different plane orientations may exhibit
+seams. 'One image' stretches independently within each orientation group; for
+seamless stone on multiple surfaces prefer **Repeat by meters**. Very large
+textures or densely triangulated models can exceed Android GPU memory.

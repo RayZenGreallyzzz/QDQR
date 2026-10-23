@@ -8,7 +8,8 @@ function staticMeshList(node,{skipDecor=true}={}){
     if(o.isSkinnedMesh)throw new Error('Текстуры стен нельзя применять к скелетной модели');
     if(skipDecor){
       for(let p=o;p;p=p.parent){
-        if(p.userData?.qdqrAttachedDecor)return;
+        if(p.userData?.qdqrAttachedDecor||p.userData?.qdqrGlassPane||
+           p.userData?.qdqrGlassContainer||p.userData?.qdqrInstalledInOpening)return;
         if(p===node)break;
       }
     }
@@ -39,42 +40,115 @@ export function localGeometryBounds(parent,{skipDecor=true}={}){
   return bounds;
 }
 
-export function projectTextureToWall(target,texture,{mode='stretch',tileMeters=1}={}){
-  if(!texture?.isTexture)throw new Error('Файл не распознан как изображение');
-  if(!['stretch','tile'].includes(mode))throw new Error('Неизвестный режим текстуры');
-  if(!(tileMeters>0))throw new Error('Неверный размер повторения текстуры');
-  const bounds=localGeometryBounds(target);
-  const width=Math.max(bounds.max.x-bounds.min.x,1e-5);
-  const height=Math.max(bounds.max.y-bounds.min.y,1e-5);
-  const origin=target.matrixWorld.clone().invert();
-  const meshes=staticMeshList(target);
-  const changes=[];
-  let total=0;
+const EPS=1e-7;
+function enclosingRoundedCorner(mesh,selected){
+  for(let p=mesh;p;p=p.parent){
+    if(p.userData?.qdqrBuildType==='corner'&&p.userData?.qdqrWallAxis==='centerline')return p;
+    if(p===selected)break;
+  }
+  return null;
+}
+function curvatureData(point,corner){
+  const local=point.clone().applyMatrix4(corner.inverse);
+  const x=local.x+corner.radius,z=local.z;
+  return {angle:Math.atan2(-z,x),radial:Math.hypot(x,z)};
+}
+/** Project a triangle to UV coordinates using the geometry's actual surface.
+ *  Vertical faces get vertical coordinates; floor/ceiling use XZ, sloped roofs
+ *  are measured along the slope, and rounded corners follow their arc length.
+ *  No face of the object is resized or flattened to an XY painting plane.
+ */
+function faceCoordinates(a,b,c,{corner=null}={}){
+  const normal=new THREE.Vector3().subVectors(b,a)
+    .cross(new THREE.Vector3().subVectors(c,a)).normalize();
+  if(normal.lengthSq()<EPS)return {kind:'xy',pairs:[a,b,c].map(p=>[p.x,p.y])};
+  const pts=[a,b,c];
+  if(Math.abs(normal.y)>.55){
+    // XZ maps ceiling undersides and top faces identically. On sloped roofs,
+    // compensate the surface distance (arc length over slope vs its shadow).
+    const pitch=Math.hypot(normal.x,normal.y)>EPS
+      ?Math.hypot(normal.x,normal.y)/Math.max(Math.abs(normal.y),.02):1;
+    return {kind:'xz',pairs:pts.map(p=>[p.x*pitch,p.z])};
+  }
+  if(corner){
+    const polar=pts.map(p=>curvatureData(p,corner));
+    const angleRange=Math.max(...polar.map(p=>p.angle))-Math.min(...polar.map(p=>p.angle));
+    const radialRange=Math.max(...polar.map(p=>p.radial))-Math.min(...polar.map(p=>p.radial));
+    if(angleRange<.002 && radialRange>.001){
+      return {kind:'cap',pairs:pts.map((p,i)=>[polar[i].radial,p.y])};
+    }
+    // One continuous U axis over the quarter circle. The original mesh can
+    // have many separate side triangles, but they all use the same arc length.
+    return {kind:'arc',pairs:pts.map((p,i)=>[polar[i].angle*corner.radius,p.y])};
+  }
+  if(Math.abs(normal.x)>Math.abs(normal.z))
+    return {kind:'zy',pairs:pts.map(p=>[p.z,p.y])};
+  return {kind:'xy',pairs:pts.map(p=>[p.x,p.y])};
+}
+function flattenFaces(node,meshes){
+  const origin=node.matrixWorld.clone().invert();
+  const batches=[];
+  const extents=new Map();
+  let triangles=0;
   for(const mesh of meshes){
-    const geometry=mesh.geometry;
-    const estimated=Math.floor((geometry.index?geometry.index.count:geometry.getAttribute('position').count)/3);
-    total+=estimated;
-    if(total>450000)throw new Error('Для текстурирования огромной сцены разделите её на более мелкие стены');
-    // Clone to keep unselected/imported originals independent.
-    const copy=geometry.index?geometry.toNonIndexed():geometry.clone();
+    const input=mesh.geometry;
+    const total=Math.floor((input.index?input.index.count:input.getAttribute('position').count)/3);
+    triangles+=total;
+    if(triangles>450000)throw new Error('Слишком много треугольников: выбери меньшую часть конструкции');
+    const copy=input.index?input.toNonIndexed():input.clone();
     const position=copy.getAttribute('position');
-    const uv=new Float32Array(position.count*2);
-    const transform=origin.clone().multiply(mesh.matrixWorld);
-    const local=new THREE.Vector3();
-    for(let i=0;i<position.count;i++){
-      local.fromBufferAttribute(position,i).applyMatrix4(transform);
-      // One image covers the whole facade across all meshes. UVs are baked in
-      // mesh geometry and will travel with the module when it is moved later.
-      const u=(local.x-bounds.min.x)/(mode==='tile'?tileMeters:width);
-      const v=(local.y-bounds.min.y)/(mode==='tile'?tileMeters:height);
-      uv[i*2]=u;uv[i*2+1]=v;
+    const toNode=origin.clone().multiply(mesh.matrixWorld);
+    const cornerObject=enclosingRoundedCorner(mesh,node);
+    const corner=cornerObject?{
+      inverse:cornerObject.matrixWorld.clone().invert(),
+      radius:1.125
+    }:null;
+    // Projection points and positions are in the same local space as node.
+    // The corner's ring is measured in the corner's own local coordinates.
+    const trianglesUV=[];
+    const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();
+    // Never create a Vector3 per vertex: on a low-memory Android tablet a
+    // million vectors would make an otherwise affordable GLB run out of RAM.
+    for(let i=0;i<position.count;i+=3){
+      a.fromBufferAttribute(position,i).applyMatrix4(toNode);
+      b.fromBufferAttribute(position,i+1).applyMatrix4(toNode);
+      c.fromBufferAttribute(position,i+2).applyMatrix4(toNode);
+      // For convex pieces the chosen plane is shared by neighboring triangles
+      // with the same surface normal; for corner mesh use the arc's frame.
+      let tri=faceCoordinates(a,b,c,{corner:corner?{
+        inverse:corner.inverse.clone().multiply(node.matrixWorld),
+        radius:corner.radius
+      }:null});
+      trianglesUV.push(tri);
+      const range=extents.get(tri.kind)||{minU:Infinity,maxU:-Infinity,minV:Infinity,maxV:-Infinity};
+      for(const [u,v] of tri.pairs){
+        range.minU=Math.min(range.minU,u);range.maxU=Math.max(range.maxU,u);
+        range.minV=Math.min(range.minV,v);range.maxV=Math.max(range.maxV,v);
+      }
+      extents.set(tri.kind,range);
+    }
+    batches.push({mesh,copy,trianglesUV});
+  }
+  return {batches,extents,triangles};
+}
+function finalizeUV({batches,extents},{mode,tileMeters,tex}){
+  const changes=[];
+  for(const {mesh,copy,trianglesUV} of batches){
+    const uv=new Float32Array(trianglesUV.length*6);
+    let ptr=0;
+    for(const face of trianglesUV){
+      const r=extents.get(face.kind);
+      const spanU=Math.max(.00001,r.maxU-r.minU),spanV=Math.max(.00001,r.maxV-r.minV);
+      for(const [u,v] of face.pairs){
+        uv[ptr++]=(u-r.minU)/(mode==='tile'?tileMeters:spanU);
+        uv[ptr++]=(v-r.minV)/(mode==='tile'?tileMeters:spanV);
+      }
     }
     copy.setAttribute('uv',new THREE.BufferAttribute(uv,2));
-    const sourceMaterials=Array.isArray(mesh.material)?mesh.material:[mesh.material];
-    const newMaterials=sourceMaterials.map(old=>{
+    const original=Array.isArray(mesh.material)?mesh.material:[mesh.material];
+    const materials=original.map(old=>{
       const mat=old?.clone?.()||new THREE.MeshStandardMaterial();
-      mat.map=texture;
-      // Do not tint the stone image by the old wall's beige/base color.
+      mat.map=tex;
       if(mat.color)mat.color.set(0xffffff);
       if('metalness' in mat)mat.metalness=0;
       if('roughness' in mat)mat.roughness=.85;
@@ -82,18 +156,37 @@ export function projectTextureToWall(target,texture,{mode='stretch',tileMeters=1
       mat.needsUpdate=true;
       return mat;
     });
-    changes.push({mesh,geometry:copy,material:Array.isArray(mesh.material)?newMaterials:newMaterials[0]});
+    changes.push({mesh,copy,material:Array.isArray(mesh.material)?materials:materials[0]});
   }
+  return changes;
+}
+export function projectTextureToModule(target,texture,{mode='stretch',tileMeters=1}={}){
+  if(!texture?.isTexture)throw new Error('Файл не распознан как изображение');
+  if(!['stretch','tile'].includes(mode))throw new Error('Неизвестный режим текстуры');
+  if(!Number.isFinite(tileMeters)||tileMeters<=0)throw new Error('Неверный размер повторения текстуры');
+  const bounds=localGeometryBounds(target);
+  const meshes=staticMeshList(target);
+  // Map every normal-oriented surface instead of forcing an XY map onto
+  // horizontal floors, roof slopes and rounded corners.
+  const faces=flattenFaces(target,meshes);
+  const changes=finalizeUV(faces,{mode,tileMeters,tex:texture});
+  // Build all UVs first; mutate existing meshes only after successful mapping.
   for(const change of changes){
-    change.mesh.geometry=change.geometry;
+    change.mesh.geometry=change.copy;
     change.mesh.material=change.material;
     change.mesh.userData.qdqrSurfaceTextured=true;
   }
   target.userData.qdqrSurfaceTextured=true;
   target.userData.qdqrTextureMode=mode;
+  target.userData.qdqrTextureProjection='surface';
+  const width=bounds.max.x-bounds.min.x,height=bounds.max.y-bounds.min.y;
   target.userData.qdqrTextureWidthMeters=width;
   target.userData.qdqrTextureHeightMeters=height;
-  return {meshes:changes.length,width,height,triangles:total};
+  return {meshes:changes.length,width,height,triangles:faces.triangles,projection:'surface'};
+}
+// Keep the old public API working with existing editor callers and GLB assets.
+export function projectTextureToWall(target,texture,options={}){
+  return projectTextureToModule(target,texture,options);
 }
 
 // Attach an existing textured mesh (for example the separate stone plane

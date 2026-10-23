@@ -161,14 +161,14 @@
           <button id="glassSaveBtn">↥ Сохранить окно со стеклом GLB</button>
         </section>
         <section><h3>Объёмный декор</h3><div class="preset-grid"><button data-add="box">▢ Блок</button><button data-add="sphere">● Сфера</button><button data-add="cylinder">⬡ Цилиндр</button><button data-add="torus">◯ Кольцо</button><button data-add="plane">▭ Картина</button><button data-add="plaque">▣ Табличка</button></div><label>Цвет материала</label><input id="decorColor" type="color" value="#bd9568"/><label>Металличность <output id="metalVal">0.2</output></label><input id="metal" type="range" min="0" max="1" step=".05" value=".2"/><label>Шероховатость <output id="roughVal">0.7</output></label><input id="rough" type="range" min="0" max="1" step=".05" value=".7"/><button id="materialBtn">Применить материал</button></section>
-        <section class="wall-texture-panel"><h3>▧ Текстуры и отделка стен</h3>
-          <p class="hint">Выдели стену или группу стен. Картинка будет нанесена на саму геометрию стены, а не добавлена отдельным объектом.</p>
+        <section class="wall-texture-panel"><h3>▧ Текстуры для всех модулей</h3>
+          <p class="hint">Выдели любой модуль или всю сборку: стену, круглый угол, пол, потолок, перекрытие, крышу или арку. Изображение наносится прямо на поверхность, без изменения размеров деталей.</p>
           <label for="textureMode">Масштаб изображения</label>
-          <select id="textureMode"><option value="stretch">Одно изображение на всю выбранную стену</option><option value="tile">Повторять по метрам (бесшовная текстура)</option></select>
+          <select id="textureMode"><option value="stretch">Одно изображение на всю выбранную поверхность</option><option value="tile">Повторять по метрам (бесшовная текстура)</option></select>
           <label for="textureTileMeters">Размер повторения, м (только для плитки)</label>
           <input id="textureTileMeters" type="number" min=".05" max="100" step=".25" value="1"/>
-          <button id="applyWallTextureBtn" class="primary">▧ Наложить изображение НА стену</button>
-          <p class="hint">Сохранит изображение в материале GLB. Можно растянуть на одну стену или сразу на набор соединённых стен.</p>
+          <button id="applyWallTextureBtn" class="primary">▧ Нанести текстуру на выбранное</button>
+          <p class="hint">Прямая стена — плоская развёртка, круглый угол — по дуге, пол и потолок — горизонтальная, крыша — вдоль ската. Для бесшовной кладки выбери повтор по метрам; для изображения на всю сборку — растяжение. Экспорт GLB сохраняет материалы.</p>
           <hr class="panel-rule"/>
           <h3>Соединить стену и отдельный декор</h3>
           <p class="hint">Для двух отдельных объектов, как в твоём видео: сначала выбери обычную стену и закрепи её как основу. Потом выбери каменную накладку и прикрепи её.</p>
@@ -200,7 +200,7 @@
       <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
     </aside>
   </div>
-  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.9</span><button id="mobileScene">☷ Сцена</button></footer>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.10</span><button id="mobileScene">☷ Сцена</button></footer>
   <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
   <input id="imagePicker" type="file" accept="image/*" hidden/>
   <div id="toast" role="status" aria-live="polite"></div>
