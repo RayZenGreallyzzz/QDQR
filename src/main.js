@@ -288,9 +288,15 @@ async function saveSelectedModule(){
   }catch(e){console.error(e);notify('Экспорт модуля: '+e.message,true);}
 }
 
+function allHouseGroups(){
+  // GLB imports are wrapped in an import batch; recognize house groups there too.
+  const found=[];
+  root.traverse(o=>{if(o!==root&&o.isGroup&&o.userData?.qdqrHouse)found.push(o);});
+  return found;
+}
 function refreshHouseTargets(){
   const dropdown=$('houseTarget'),current=dropdown.value;
-  const houses=root.children.filter(o=>o.isGroup&&o.userData?.qdqrHouse);
+  const houses=allHouseGroups();
   dropdown.replaceChildren();
   for(const house of houses){
     const opt=document.createElement('option');
@@ -324,7 +330,7 @@ function refreshHouseTargets(){
   }else grid.position.y=-.004;
 }
 function currentHouse(){
-  return root.children.find(o=>o.userData?.qdqrHouse && o.uuid===$('houseTarget').value)||null;
+  return allHouseGroups().find(o=>o.uuid===$('houseTarget').value)||null;
 }
 function currentFloor(){
   return getFloors(currentHouse()).find(o=>o.uuid===$('floorTarget').value)||null;
