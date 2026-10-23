@@ -197,3 +197,36 @@ test('UV projection does not alter source geometry when adding texture to a grou
  assert.deepEqual(Array.from(old.getAttribute('position').array),Array.from(originalX));
  assert.notEqual(slab.children[0].geometry,old);
 });
+
+test('a reimported baked GLB rounded corner is recognized from its shape and name',()=>{
+ // The user's GLB export drops qdqrBuildType metadata. The new import path
+ // must identify a 90-degree curved ring even after the entire mesh is shifted.
+ const original=createConstruction('corner',new THREE.MeshStandardMaterial());
+ const baked=new THREE.Group();
+ baked.name='Модуль · corner · игровой модуль';
+ const clone=original.children[0].clone();
+ clone.name='Закруглённый угол 90°';
+ clone.geometry=clone.geometry.clone();
+ clone.geometry.translate(4.7,0,-2.1);
+ baked.add(clone);
+ projectTextureToModule(baked,image(),{mode:'tile',tileMeters:1});
+ assertFacesUnfolded(baked);
+ const geom=clone.geometry,p=geom.getAttribute('position'),uv=geom.getAttribute('uv');
+ // On a sidewall, UV-U must have the same change as true arc length.
+ let curved=0;
+ for(let i=0;i<p.count;i+=3){
+   const a=new THREE.Vector3().fromBufferAttribute(p,i);
+   const b=new THREE.Vector3().fromBufferAttribute(p,i+1);
+   const c=new THREE.Vector3().fromBufferAttribute(p,i+2);
+   const n=b.clone().sub(a).cross(c.clone().sub(a)).normalize();
+   if(Math.abs(n.y)>.5)continue;
+   const phi=[a,b,c].map(q=>Math.atan2(-(q.z+2.1),q.x-(4.7-1.125)));
+   if(Math.max(...phi)-Math.min(...phi)<.002)continue;
+   const deltaUV=uv.getX(i+1)-uv.getX(i);
+   const deltaArc=(phi[1]-phi[0])*1.125;
+   assert.ok(Math.abs(deltaUV-deltaArc)<.001,
+     'Baked corner must map texture along curve, not stretch planar XY');
+   curved++;
+ }
+ assert.ok(curved>10);
+});

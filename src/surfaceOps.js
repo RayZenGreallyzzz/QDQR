@@ -43,15 +43,67 @@ export function localGeometryBounds(parent,{skipDecor=true}={}){
 const EPS=1e-7;
 function enclosingRoundedCorner(mesh,selected){
   for(let p=mesh;p;p=p.parent){
-    if(p.userData?.qdqrBuildType==='corner'&&p.userData?.qdqrWallAxis==='centerline')return p;
+    // Metadata is preserved for stock presets. Saved/baked GLB files can
+    // lose that metadata, but retain the descriptive mesh/module name.
+    if(p.userData?.qdqrBuildType==='corner' ||
+       /(?:\bcorner\b|закругл[её]нн?ый\s+угол)/i.test(p.name||''))return p;
     if(p===selected)break;
   }
   return null;
 }
+function sampleArcPoints(node){
+  const points=[],matrixInv=node.matrixWorld.clone().invert();
+  const point=new THREE.Vector3();
+  node.traverse(mesh=>{
+    if(!mesh.isMesh||!mesh.geometry?.getAttribute('position'))return;
+    mesh.updateWorldMatrix(true,false);
+    const transform=matrixInv.clone().multiply(mesh.matrixWorld);
+    const pos=mesh.geometry.getAttribute('position');
+    const stride=Math.max(1,Math.ceil(pos.count/500));
+    for(let i=0;i<pos.count;i+=stride){
+      point.fromBufferAttribute(pos,i).applyMatrix4(transform);
+      points.push([point.x,point.z]);
+    }
+  });
+  return points;
+}
+function arcDescriptor(node){
+  node.updateWorldMatrix(true,true);
+  if(node.userData?.qdqrBuildType==='corner')
+    return {inverse:node.matrixWorld.clone().invert(),centerX:-1.125,
+      centerZ:0,radius:1.125,phase:0};
+  const pts=sampleArcPoints(node);
+  if(pts.length<20)return null;
+  const minX=Math.min(...pts.map(p=>p[0])),maxX=Math.max(...pts.map(p=>p[0]));
+  const minZ=Math.min(...pts.map(p=>p[1])),maxZ=Math.max(...pts.map(p=>p[1]));
+  let best=null;
+  for(const centerX of [minX,maxX]){
+    for(const centerZ of [minZ,maxZ]){
+      const rr=pts.map(p=>Math.hypot(p[0]-centerX,p[1]-centerZ))
+        .sort((a,b)=>a-b);
+      const inner=rr[Math.floor(rr.length*.25)],outer=rr[Math.floor(rr.length*.75)];
+      if(inner<.001 || outer-inner<.001)continue;
+      const score=rr.reduce((sum,r)=>sum+Math.min(Math.abs(r-inner),Math.abs(r-outer)),0) /
+        (rr.length*outer);
+      const angles=pts.map(p=>Math.atan2(centerZ-p[1],p[0]-centerX));
+      const sumSin=angles.reduce((n,v)=>n+Math.sin(v),0),sumCos=angles.reduce((n,v)=>n+Math.cos(v),0);
+      const phase=Math.atan2(sumSin,sumCos);
+      const adjusted=angles.map(x=>Math.atan2(Math.sin(x-phase),Math.cos(x-phase)));
+      const spread=Math.max(...adjusted)-Math.min(...adjusted);
+      if(spread<.4||spread>3.2)continue;
+      if(!best||score<best.score)best={score,centerX,centerZ,
+        radius:(inner+outer)*.5,phase};
+    }
+  }
+  if(!best||best.score>.05)return null;
+  return {inverse:node.matrixWorld.clone().invert(),...best};
+}
 function curvatureData(point,corner){
   const local=point.clone().applyMatrix4(corner.inverse);
-  const x=local.x+corner.radius,z=local.z;
-  return {angle:Math.atan2(-z,x),radial:Math.hypot(x,z)};
+  const x=local.x-corner.centerX,z=local.z-corner.centerZ;
+  const raw=Math.atan2(-z,x);
+  const angle=Math.atan2(Math.sin(raw-corner.phase),Math.cos(raw-corner.phase));
+  return {angle,radial:Math.hypot(x,z)};
 }
 /** Project a triangle to UV coordinates using the geometry's actual surface.
  *  Vertical faces get vertical coordinates; floor/ceiling use XZ, sloped roofs
@@ -99,10 +151,7 @@ function flattenFaces(node,meshes){
     const position=copy.getAttribute('position');
     const toNode=origin.clone().multiply(mesh.matrixWorld);
     const cornerObject=enclosingRoundedCorner(mesh,node);
-    const corner=cornerObject?{
-      inverse:cornerObject.matrixWorld.clone().invert(),
-      radius:1.125
-    }:null;
+    const corner=cornerObject?arcDescriptor(cornerObject):null;
     // Projection points and positions are in the same local space as node.
     // The corner's ring is measured in the corner's own local coordinates.
     const trianglesUV=[];
@@ -117,7 +166,8 @@ function flattenFaces(node,meshes){
       // with the same surface normal; for corner mesh use the arc's frame.
       let tri=faceCoordinates(a,b,c,{corner:corner?{
         inverse:corner.inverse.clone().multiply(node.matrixWorld),
-        radius:corner.radius
+        centerX:corner.centerX,centerZ:corner.centerZ,
+        radius:corner.radius,phase:corner.phase
       }:null});
       trianglesUV.push(tri);
       const range=extents.get(tri.kind)||{minU:Infinity,maxU:-Infinity,minV:Infinity,maxV:-Infinity};
