@@ -10,6 +10,7 @@ import {OBJExporter} from 'three/addons/exporters/OBJExporter.js';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, removePickedFaces, countTriangles, createConstruction} from './meshOps.js';
 import {bakeStaticAssembly} from './assemblyOps.js';
+import {projectTextureToWall,attachDecorToWall} from './surfaceOps.js';
 import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility} from './houseOps.js';
 
 const $=id=>document.getElementById(id);
@@ -55,6 +56,7 @@ const faceOverlay=new THREE.Mesh(new THREE.BufferGeometry(),new THREE.MeshBasicM
 faceOverlay.name='Редактор: выделенные грани';faceOverlay.visible=false;faceOverlay.renderOrder=999;
 faceOverlay.matrixAutoUpdate=false;scene.add(faceOverlay);
 let facePickEnabled=false,markedFaces=new Set();
+let savedWallBase=null,imagePickMode='separate';
 let mode='translate',fileBase='phoenix_module',history=[],future=[],isolate=false,dragged=false,busy=false;
 const lastFiles=[];
 const pointer=new THREE.Vector2(),raycaster=new THREE.Raycaster();
@@ -699,6 +701,79 @@ function bakeAll(){
   root.clear();meshes.forEach(m=>root.add(m));select(meshes[0]||null);
   notify('Матрицы преобразованы в вершины. Материалы сохранены.');
 }
+
+function validWallReference(){
+  if(savedWallBase){
+    let p=savedWallBase;
+    while(p && p!==root)p=p.parent;
+    if(p===root)return savedWallBase;
+    savedWallBase=null;
+  }
+  return null;
+}
+function rememberSelectedWall(){
+  if(!selected)return notify('Выбери стену на сцене',true);
+  if(!countTriangles(selected).meshes)return notify('У выбранного набора нет геометрии',true);
+  savedWallBase=selected;
+  $('wallBaseName').textContent='Основа: '+(selected.name||'Стена');
+  notify('Основа запомнена. Теперь выбери отдельно каменную накладку.');
+}
+function attachSelectedWallDecor(){
+  const wall=validWallReference(),panel=selected;
+  if(!wall)return notify('Шаг 1: сначала запомни стену-основу',true);
+  if(!panel || wall===panel)return notify('Шаг 2: выбери отдельную каменную накладку',true);
+  try{
+    setFacePickMode(false);
+    // Avoid moving the wall itself or its ancestor into its own descendant.
+    snapshot();
+    const res=attachDecorToWall(wall,panel,{fit:$('fitDecorToWall').checked});
+    select(res.wall);
+    notify('Готово: каменная накладка вложена в стену. Сохраняй её как один GLB.');
+  }catch(e){console.error(e);notify('Не удалось прикрепить: '+e.message,true);}
+}
+async function saveDecorWall(){
+  const wall=validWallReference()||selected;
+  if(!wall)return notify('Выбери стену для сохранения',true);
+  if(!countTriangles(wall).meshes)return notify('В выбранной стене нет мешей',true);
+  // Do not merge/strip attached geometry. Preserve hierarchy and material maps.
+  // Use the full group path; selected wall and child ornament are both exported.
+  const clone=cloneDeep(wall);
+  clone.updateWorldMatrix(true,true);
+  try{
+    // Bake a standalone copy at a bottom-center origin, preserving all
+    // material groups, child geometries and baked texture UVs.
+    const baked=bakeStaticAssembly(wall,{
+      merge:false,pivot:'bottom-center',
+      maxTriangles:lowMemoryMobile?140000:350000
+    });
+    await save('glb',baked,(wall.name||'Стена')+'_с_декором');
+  }catch(e){console.error(e);notify('Ошибка сохранения стены: '+e.message,true);}
+}
+function loadWallImage(file){
+  if(!selected||!countTriangles(selected).meshes){
+    notify('Сначала выбери стену или группу стен',true);return;
+  }
+  const target=selected;
+  const readerUrl=URL.createObjectURL(file);
+  new THREE.TextureLoader().load(readerUrl,tex=>{
+    try{
+      tex.colorSpace=THREE.SRGBColorSpace;
+      // GLTF exporter handles flipping internal textures according to glTF convention.
+      tex.wrapS=tex.wrapT=$('textureMode').value==='tile'?THREE.RepeatWrapping:THREE.ClampToEdgeWrapping;
+      snapshot();
+      const result=projectTextureToWall(target,tex,{
+        mode:$('textureMode').value,
+        tileMeters:Number($('textureTileMeters').value)
+      });
+      // Store stable target reference for the explicit "save wall + decor" action.
+      savedWallBase=target;
+      $('wallBaseName').textContent='Основа: '+(target.name||'Стена');
+      select(target);
+      notify('Текстура нанесена на '+result.meshes+' мешей: '+result.width.toFixed(2)+' × '+result.height.toFixed(2)+' м. Сохраняй GLB.');
+    }catch(e){console.error(e);notify('Ошибка текстуры: '+e.message,true);}
+    finally{URL.revokeObjectURL(readerUrl);}
+  },undefined,e=>{console.error(e);URL.revokeObjectURL(readerUrl);notify('Не удалось загрузить изображение',true);});
+}
 function addEmblem(texture){
   const plane=new THREE.Mesh(new THREE.PlaneGeometry(.8,.8),new THREE.MeshStandardMaterial({map:texture,transparent:true,side:THREE.DoubleSide,metalness:.15,roughness:.55,depthWrite:false}));
   plane.name='Эмблема / картина';
@@ -870,14 +945,22 @@ function initEvents(){
     snapshot();selected.material=activeMaterial();refresh();notify('Материал применён');
   };
   $('emblemBtn').onclick=canvasEmblem;
-  $('textureBtn').onclick=()=>$('imagePicker').click();
+  $('rememberWallBtn').onclick=rememberSelectedWall;
+  $('attachDecorBtn').onclick=attachSelectedWallDecor;
+  $('saveDecorWallBtn').onclick=saveDecorWall;
+  $('applyWallTextureBtn').onclick=()=>{
+    if(!selected || !countTriangles(selected).meshes)return notify('Сначала выбери стену',true);
+    imagePickMode='wall';$('imagePicker').click();
+  };
+  $('textureBtn').onclick=()=>{imagePickMode='separate';$('imagePicker').click();};
   $('imagePicker').onchange=e=>{
-    const f=e.target.files[0];if(!f)return;
+    const f=e.target.files[0];e.target.value='';
+    if(!f)return;
+    if(imagePickMode==='wall'){loadWallImage(f);return;}
     const url=URL.createObjectURL(f);
     new THREE.TextureLoader().load(url,tx=>{
       tx.colorSpace=THREE.SRGBColorSpace;addEmblem(tx);setTimeout(()=>URL.revokeObjectURL(url),10000);
     },undefined,()=>{notify('Не удалось прочитать изображение',true);URL.revokeObjectURL(url);});
-    e.target.value='';
   };
   document.querySelectorAll('#toolTabs button').forEach(b=>b.onclick=()=>{
     document.querySelectorAll('#toolTabs button').forEach(n=>n.classList.remove('active'));

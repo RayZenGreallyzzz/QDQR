@@ -55,3 +55,11 @@
 .house-grid button{min-height:44px;padding:8px 5px;font-size:12px}
 .house-builder-panel select,.house-builder-panel input:not([type=checkbox]){min-height:43px}
 @media(max-width:980px){.house-builder-panel button{min-height:49px}}
+
+.wall-texture-panel{background:#1b2838;border-left:3px solid #c6a465}
+.wall-texture-panel h3{color:#efc77b;margin-top:9px}
+.wall-texture-panel>button{display:block;width:100%;min-height:47px;margin:8px 0}
+.wall-texture-panel input[type=number],.wall-texture-panel select{min-height:42px}
+.wall-texture-panel .check{font-size:12px}
+.panel-rule{border:0;border-top:1px solid #495568;margin:15px 0}
+#wallBaseName{color:#efca80;min-height:18px}

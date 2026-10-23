@@ -93,3 +93,20 @@ Under **Модули → Дом и этажи**:
 - Prefer baking subsections (static decor, furniture, facades) individually instead of baking a large house to a single mesh. Large projects may exceed memory on 4 GB tablets, so export often. Automated collisions, door logic, navmesh, UV atlas and semantic roofing are not part of this release.
 
 The House module adds basic building assembly within QDQR; it does not replace Phoenix World Builder's dedicated architectural construction workflow.
+
+## Fix for separate textured wall vs image (v0.1.6)
+
+In the tablet's **Инструменты → Декор → Текстуры и отделка стен**:
+
+**A. Apply an image directly to the selected wall**
+1. Select the wall (or an entire group of connected wall modules).
+2. Choose *Одно изображение на всю выбранную стену* to stretch a painting/graffiti/panorama across its entire width, or *Повторять по метрам* for seamless masonry/wood/tile.
+3. Press *Наложить изображение НА стену*, choose a PNG/JPEG/WebP. The image is assigned to the selected mesh(es) as GLB material with face UV coordinates. No extra separate plane is created.
+4. Choose *Сохранить выбранный GLB* in the Modules tab to export just the textured wall, or use the new *Сохранить стену вместе с декором* button.
+
+**B. Attach a previously imported textured plane to a plain wall**
+1. Select the plain wall object, press *Запомнить выбранную стену*.
+2. Select the separately imported texture/decal/stone panel object. Choose *Растянуть накладку на всю стену* (default) and press *Прикрепить выбранную накладку*.
+3. The panel is now a child of the wall; save the wall as one selected GLB. Materials/UVs remain on both parts, so both display on reimport. The new attachment is editable separately in the hierarchy; no texture atlas is generated.
+
+Caveat: if imported meshes have unusual orientations or complex topology, auto-fit may need manual adjustment. The preview has no native GLB reimport smoke test on a physical device. The output stores PBR texture images and geometry in a single GLB binary when supported by Three.js exporter.
