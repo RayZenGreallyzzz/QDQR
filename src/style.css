@@ -25,3 +25,14 @@
  .viewport-controls{bottom:10px}
  .scene-actions button{min-height:49px}
 }
+
+.copy-controls{display:grid;grid-template-columns:110px minmax(0,1fr);gap:7px;margin-top:8px}
+.copy-controls button{min-height:44px;font-size:12px}
+.face-edit-panel{margin:13px 0 17px;padding:12px 10px;border-radius:12px;border:1px solid #9f8550;background:#1e2c3a}
+.face-edit-panel h3{margin:0 0 9px;color:#f4d197}
+.face-edit-panel>button{width:100%;min-height:45px}
+.face-edit-panel input[type=range]{width:100%}
+.face-edit-panel button{font-size:12px}
+.face-edit-panel .two button{min-height:45px}
+.face-edit-panel p.hint{margin:9px 0;color:#b7c7d9}
+@media(max-width:980px){.copy-controls button,.face-edit-panel button{min-height:48px}}

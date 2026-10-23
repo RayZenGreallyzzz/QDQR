@@ -8,7 +8,7 @@ import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {OBJExporter} from 'three/addons/exporters/OBJExporter.js';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
-import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, countTriangles, createConstruction} from './meshOps.js';
+import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, removePickedFaces, countTriangles, createConstruction} from './meshOps.js';
 
 const $=id=>document.getElementById(id);
 const viewport=$('viewport');
@@ -46,6 +46,13 @@ const transform=new TransformControls(camera,renderer.domElement);
 scene.add(transform.getHelper());
 let selected=null,selectionBox=new THREE.BoxHelper(new THREE.Object3D(),0xe5b965);
 selectionBox.visible=false;scene.add(selectionBox);
+const faceOverlay=new THREE.Mesh(new THREE.BufferGeometry(),new THREE.MeshBasicMaterial({
+  color:0xf8bc54,transparent:true,opacity:.58,depthWrite:false,polygonOffset:true,
+  polygonOffsetFactor:-3,side:THREE.DoubleSide
+}));
+faceOverlay.name='Редактор: выделенные грани';faceOverlay.visible=false;faceOverlay.renderOrder=999;
+faceOverlay.matrixAutoUpdate=false;scene.add(faceOverlay);
+let facePickEnabled=false,markedFaces=new Set();
 let mode='translate',fileBase='phoenix_module',history=[],future=[],isolate=false,dragged=false,busy=false;
 const lastFiles=[];
 const pointer=new THREE.Vector2(),raycaster=new THREE.Raycaster();
@@ -69,6 +76,7 @@ function snapshot(){
   future=[];
 }
 function restore(snap){
+  setFacePickMode(false);markedFaces.clear();updateFaceOverlay();
   transform.detach();selected=null;root.clear();
   const c=cloneDeep(snap);while(c.children.length)root.add(c.children[0]);
   isolate=false;selectionBox.visible=false;
@@ -118,6 +126,7 @@ function deleteBatch(batch=pendingBatch()){
  if(!batch)return notify('Выбери набор в разделе «Сцена»',true);
  const label=batch.name||'Набор';
  if(!window.confirm('Удалить весь набор «'+label+'» со всеми деталями? Другие объекты останутся.'))return;
+ setFacePickMode(false);clearMarkedFaces();
  snapshot();
  if(selected && (selected===batch||batch.getObjectById(selected.id))){
    transform.detach();selected=null;selectionBox.visible=false;
@@ -160,12 +169,13 @@ function refresh(){
 }
 function select(obj){
   if(obj && !obj.isMesh && !obj.isGroup)return;
+  if(selected!==obj){markedFaces.clear();updateFaceOverlay();}
   selected=obj;transform.detach();
   if(obj){
-    transform.attach(obj);
-    selectionBox.setFromObject(obj);selectionBox.visible=true;
+    if(!facePickEnabled)transform.attach(obj);
+    selectionBox.setFromObject(obj);selectionBox.visible=!facePickEnabled;
   } else selectionBox.visible=false;
-  refresh();
+  updateFaceOverlay();refresh();
 }
 function updateProperties(){
   const o=selected;
@@ -202,6 +212,7 @@ function addPart(type){
 }
 function newScene(){
   if(root.children.length && !window.confirm('Очистить всю сцену? Сначала сохраните нужные модели.'))return;
+  setFacePickMode(false);clearMarkedFaces();
   snapshot();root.clear();select(null);fileBase='phoenix_module';
   fitCamera();setStatus('Новая пустая сцена');notify('Сцена очищена');
 }
@@ -247,6 +258,142 @@ function splitSelected(){
     select(group.children[0]||null);
     notify('Найдено '+result.totalIslands+' островков; выделено '+result.parts.length+' редактируемых частей');
   }catch(e){console.error(e);notify('Разделение: '+e.message,true);}
+}
+
+function updateFaceOverlay(){
+  $('faceCounter').textContent='Выделено: '+markedFaces.size+' полигонов';
+  $('faceDeleteBtn').disabled=markedFaces.size===0;
+  $('faceClearBtn').disabled=markedFaces.size===0;
+  if(!selected?.isMesh || !markedFaces.size || !facePickEnabled){
+    faceOverlay.visible=false;return;
+  }
+  const geom=selected.geometry,positions=geom?.getAttribute('position');
+  if(!positions){faceOverlay.visible=false;return;}
+  const idx=geom.index,coords=[];
+  const maxTriangles=Math.min(markedFaces.size,15000);
+  let shown=0;
+  for(const f of markedFaces){
+    if(shown++>=maxTriangles)break;
+    for(let corner=0;corner<3;corner++){
+      const vertex=idx?idx.getX(f*3+corner):f*3+corner;
+      coords.push(positions.getX(vertex),positions.getY(vertex),positions.getZ(vertex));
+    }
+  }
+  const overlayGeometry=new THREE.BufferGeometry();
+  overlayGeometry.setAttribute('position',new THREE.Float32BufferAttribute(coords,3));
+  faceOverlay.geometry.dispose();faceOverlay.geometry=overlayGeometry;
+  selected.updateWorldMatrix(true,false);
+  faceOverlay.matrix.copy(selected.matrixWorld);
+  faceOverlay.matrixWorldNeedsUpdate=true;
+  faceOverlay.visible=true;
+}
+function setFacePickMode(enabled){
+  facePickEnabled=Boolean(enabled);
+  transform.detach();
+  orbit.enabled=!facePickEnabled;
+  $('facePickBtn').classList.toggle('active',facePickEnabled);
+  $('facePickBtn').setAttribute('aria-pressed',String(facePickEnabled));
+  $('facePickBtn').textContent=facePickEnabled?'✓ Закончить выделение':'◎ Выбрать грани пальцем';
+  if(!facePickEnabled && selected)transform.attach(selected);
+  selectionBox.visible=!!selected&&!facePickEnabled;
+  updateFaceOverlay();
+  if(facePickEnabled){
+    setStatus('Выделение граней: касайся области на модели · повторный тап снимает отметку');
+    if(window.matchMedia('(max-width:980px)').matches)
+      document.querySelector('.sidebar.left').classList.remove('mobile-open');
+  }else setStatus('Выделение закончено — камера снова свободна');
+}
+function hitPick(hit){
+  if(!hit?.object?.isMesh || hit.faceIndex===undefined || hit.faceIndex===null)return;
+  const m=hit.object;
+  if(selected!==m)select(m);
+  const geom=m.geometry,position=geom?.getAttribute('position'),ix=geom.index;
+  if(!position)return;
+  const faceCount=Math.floor((ix?ix.count:position.count)/3);
+  const face=hit.faceIndex;
+  if(face<0||face>=faceCount)return;
+  const chosen=new Set([face]);
+  const brush=Number($('brushSize').value);
+  if(brush>0){
+    if(faceCount>130000)notify('Для большой модели уменьшена кисть: сначала разделите меш',true);
+    else{
+      geom.computeBoundingBox();
+      const diag=geom.boundingBox.getSize(new THREE.Vector3()).length();
+      const r=diag*brush/100;
+      const localHit=m.worldToLocal(hit.point.clone());
+      const normal=hit.face.normal.clone().normalize();
+      const a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3();
+      const ab=new THREE.Vector3(),ac=new THREE.Vector3();
+      const lim=Math.min(faceCount,140000);
+      for(let f=0;f<lim;f++){
+        const i0=ix?ix.getX(f*3):f*3;
+        const i1=ix?ix.getX(f*3+1):f*3+1;
+        const i2=ix?ix.getX(f*3+2):f*3+2;
+        a.fromBufferAttribute(position,i0);b.fromBufferAttribute(position,i1);c.fromBufferAttribute(position,i2);
+        const x=(a.x+b.x+c.x)/3,y=(a.y+b.y+c.y)/3,z=(a.z+b.z+c.z)/3;
+        if((x-localHit.x)**2+(y-localHit.y)**2+(z-localHit.z)**2>r*r)continue;
+        ab.subVectors(b,a);ac.subVectors(c,a);
+        const candidateNormal=ab.cross(ac).normalize();
+        if(candidateNormal.dot(normal)>0.2)chosen.add(f);
+      }
+    }
+  }
+  const shouldRemove=markedFaces.has(face);
+  for(const i of chosen)if(shouldRemove)markedFaces.delete(i);else markedFaces.add(i);
+  if(markedFaces.size>14000)notify('Много выделенных граней; подсветка ограничена первыми 15 000',true);
+  updateFaceOverlay();
+}
+function clearMarkedFaces(){
+  markedFaces.clear();updateFaceOverlay();
+}
+function deleteMarkedFaces(){
+  if(!selected?.isMesh || !markedFaces.size)return notify('Сначала отметь полигоны на модели',true);
+  const faces=new Set(markedFaces);
+  const total=Math.floor((selected.geometry.index?selected.geometry.index.count:selected.geometry.getAttribute('position').count)/3);
+  if(faces.size>=total){
+    if(!window.confirm('Отмечены ВСЕ полигоны. Удалить всю деталь?'))return;
+    setFacePickMode(false);clearMarkedFaces();deleteSelection();return;
+  }
+  if(!window.confirm('Удалить '+faces.size+' отмеченных полигонов? Неотмеченная часть останется.'))return;
+  setFacePickMode(false);
+  applyGeometry(g=>removePickedFaces(g,faces),'Удалены выбранные грани');
+  clearMarkedFaces();
+}
+function duplicateSelected(){
+  if(!selected)return notify('Сначала выбери деталь или набор',true);
+  if(selected.isSkinnedMesh)return notify('Копирование риггированных персонажей ещё не поддерживается',true);
+  let containsSkin=false;selected.traverse(o=>{if(o.isSkinnedMesh)containsSkin=true;});
+  if(containsSkin)return notify('Риггированные модели пока нельзя безопасно копировать',true);
+  if(countTriangles(selected).triangles>180000 && !window.confirm('Очень тяжёлая модель. Копирование может занять много памяти. Продолжить?'))return;
+  setFacePickMode(false);
+  snapshot();
+  const original=selected,parent=original.parent||root,clone=cloneDeep(original);
+  clone.name=(original.name||'Деталь')+' · копия';
+  if(clone.userData?.importBatch)clone.userData.importBatch=false;
+  parent.add(clone);
+  root.updateWorldMatrix(true,true);
+  const first=new THREE.Box3().setFromObject(original);
+  const second=new THREE.Box3().setFromObject(clone);
+  const direction=$('copyDirection').value,gap=.02;
+  const worldOffset=new THREE.Vector3();
+  if(direction==='x+')worldOffset.x=first.max.x-second.min.x+gap;
+  if(direction==='x-')worldOffset.x=first.min.x-second.max.x-gap;
+  if(direction==='z+')worldOffset.z=first.max.z-second.min.z+gap;
+  if(direction==='z-')worldOffset.z=first.min.z-second.max.z-gap;
+  // Parent matrices can include rotation/scale: convert offset vector to local.
+  const inverse=parent.matrixWorld.clone().invert();
+  const origin=new THREE.Vector3().applyMatrix4(inverse);
+  const target=worldOffset.clone().applyMatrix4(inverse);
+  clone.position.add(target.sub(origin));
+  clone.updateWorldMatrix(true,true);
+  // Keep both original and copy visible, including when the user was zoomed in.
+  const pair=new THREE.Box3().setFromObject(original).union(new THREE.Box3().setFromObject(clone));
+  const center=pair.getCenter(new THREE.Vector3()),offset=camera.position.clone().sub(orbit.target);
+  const distance=Math.max(offset.length(),pair.getSize(new THREE.Vector3()).length()*1.6,.7);
+  camera.position.copy(center).add(offset.setLength(distance));
+  orbit.target.copy(center);orbit.update();
+  select(clone);
+  notify('Копия поставлена рядом. Размеры и текстуры сохранены.');
 }
 function changeMode(m){
   mode=m;transform.setMode(m);
@@ -295,6 +442,7 @@ function isolateSelection(){
 function deleteSelection(){
   if(!selected)return;
   if(selected.isGroup)return deleteBatch(selected);
+  setFacePickMode(false);clearMarkedFaces();
   snapshot();transform.detach();selected.removeFromParent();selected=null;
   selectionBox.visible=false;refresh();notify('Фрагмент удалён');
 }
@@ -358,6 +506,7 @@ async function importFile(file){
     if(!stats.meshes)throw new Error('Файл не содержит 3D-мешей');
     if(stats.triangles>1300000)notify('Очень тяжёлая модель; на планшете возможны тормоза');
     snapshot();
+    setFacePickMode(false);clearMarkedFaces();
     const bundle=new THREE.Group();bundle.name=file.name;bundle.userData.importBatch=true;
     bundle.add(obj);root.add(bundle);fileBase=safeName(file.name.replace(/\.[^.]+$/,''));
     const mesh=(()=>{let v=null;obj.traverse(o=>{if(!v&&o.isMesh)v=o;});return v;})();
@@ -426,18 +575,24 @@ function initEvents(){
   $('newBtn').onclick=newScene;
   $('clearSceneBtn').onclick=newScene;
   $('deleteBatchBtn').onclick=()=>deleteBatch();
-  $('cameraOrbit').onclick=()=>setCameraNavigation('orbit');
-  $('cameraPan').onclick=()=>setCameraNavigation('pan');
+  $('cameraOrbit').onclick=()=>{setFacePickMode(false);setCameraNavigation('orbit');};
+  $('cameraPan').onclick=()=>{setFacePickMode(false);setCameraNavigation('pan');};
   $('viewFocus').onclick=focusSelected;
   $('resetCamera').onclick=fitCamera;$('viewFit').onclick=fitCamera;
   $('viewFront').onclick=()=>view('front');$('viewSide').onclick=()=>view('side');$('viewTop').onclick=()=>view('top');
   $('exportBtn').onclick=()=>save('glb');$('saveBtn').onclick=()=>save($('format').value);
-  $('clearSelection').onclick=()=>select(null);
+  $('clearSelection').onclick=()=>{setFacePickMode(false);clearMarkedFaces();select(null);};
   $('undoBtn').onclick=undo;$('redoBtn').onclick=redo;
   $('centerPivot').onclick=centerPivot;$('groundBtn').onclick=ground;
   $('deleteBtn').onclick=deleteSelection;$('isolateBtn').onclick=isolateSelection;
   $('bakeBtn').onclick=bakeAll;
   $('splitBtn').onclick=splitSelected;
+  $('duplicateBtn').onclick=duplicateSelected;
+  $('facePickBtn').onclick=()=>setFacePickMode(!facePickEnabled);
+  $('faceClearBtn').onclick=clearMarkedFaces;
+  $('faceDeleteBtn').onclick=deleteMarkedFaces;
+  $('brushSize').oninput=e=>$('brushLabel').textContent=Number(e.target.value)===0?'1 грань':e.target.value+'% размера объекта';
+  clearMarkedFaces();
   $('cleanBtn').onclick=()=>applyGeometry(g=>removeSmallIslands(g,Number($('islandSize').value)),'Очищен облой');
   $('normalsBtn').onclick=()=>applyGeometry(g=>{const r=cleanDegenerate(g);return r;},'Убраны вырожденные треугольники; нормали пересчитаны');
   $('cutBtn').onclick=()=>applyGeometry(g=>cropGeometry(g,$('cutAxis').value,Number($('cutPos').value),$('cutSide').value),'Обрезка без закрытия среза');
@@ -481,22 +636,25 @@ function initEvents(){
   transform.addEventListener('dragging-changed',event=>{orbit.enabled=!event.value;if(event.value){snapshot();dragged=true;}else{refresh();selectionBox.visible=!!selected;}});
   transform.addEventListener('objectChange',()=>{if(selected){selectionBox.setFromObject(selected);updateProperties();}});
   let down=null;
-  renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY,time:performance.now()};});
+  renderer.domElement.addEventListener('pointerdown',e=>{if(!e.isPrimary){down=null;return;}down={x:e.clientX,y:e.clientY,id:e.pointerId,time:performance.now()};});
   renderer.domElement.addEventListener('pointerup',e=>{
-    if(!down||!orbit.enabled)return;
+    if(!down || e.pointerId!==down.id || (!orbit.enabled&&!facePickEnabled))return;
     const distance=Math.hypot(e.clientX-down.x,e.clientY-down.y);down=null;
     if(distance>8)return;
     const rect=renderer.domElement.getBoundingClientRect();
     pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);
     raycaster.setFromCamera(pointer,camera);
     const hits=raycaster.intersectObjects(root.children,true).filter(h=>h.object.isMesh&&h.object.visible);
-    if(hits.length)select(hits[0].object);
+    if(facePickEnabled){if(hits.length)hitPick(hits[0]);else notify('Коснись поверхности детали');}
+    else if(hits.length)select(hits[0].object);
   });
   viewport.addEventListener('dragover',e=>e.preventDefault());
   viewport.addEventListener('drop',e=>{e.preventDefault();importFile(e.dataTransfer.files[0]);});
   window.addEventListener('keydown',e=>{
     if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;
-    if(e.key==='Delete')deleteSelection();
+    if(e.key==='Delete'){if(facePickEnabled&&markedFaces.size)deleteMarkedFaces();else deleteSelection();}
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){e.preventDefault();duplicateSelected();}
+    if(e.key==='Escape'&&facePickEnabled)setFacePickMode(false);
     if(e.key.toLowerCase()==='f')focusSelected();
     if(e.key.toLowerCase()==='h')setCameraNavigation(cameraNavMode==='pan'?'orbit':'pan');
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();if(e.shiftKey)redo();else undo();}

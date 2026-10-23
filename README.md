@@ -65,3 +65,10 @@ Capacitor 8 needs **Node.js 22+**, Android SDK and JDK 21 for cloud builds. The 
 - Imported GLB, GLTF, OBJ and STL files are each grouped into their own top-level bundle so a single delete can remove the entire import.
 - Above the view buttons, switch between **⟳ Вращать** and **✥ Сдвигать**. In pan mode a single finger moves the camera freely, no world-origin lock. Two fingers pan/zoom in either mode. **◎ К объекту** focuses selected set or mesh; **⌂ Вся сцена** resets to the complete scene.
 - Desktop: right mouse drag pans in both modes; F focuses the current selection; H toggles camera navigation mode.
+
+## Precise local cleanup and copy alongside (0.1.3)
+
+- Select a mesh in the scene. Under **Правка → Геометрия** tap **Выбрать грани пальцем** and tap the affected faces. Gold highlighting shows what will be deleted. Increase brush size if necessary. Tap **Удалить отмеченное** to remove ONLY those polygons; all other faces, UVs and material slots are preserved. The selected mesh's triangles may develop **open holes**; no automatic fill is claimed. Use **Снять отметки** to cancel.
+- Under **Правка → Копирование детали**, select **Справа/Слева/Вперёд/Назад**, then **Копировать рядом**. Copies are independent editable meshes or whole groups, preserve textures, are positioned beside the world's axis-aligned bounding box, and can be moved with the normal transform gizmo.
+- Imported bundles are groups; to delete one small part rather than copy everything, select its mesh by tapping on the 3D model or choosing it from the scene list.
+- For plane-cut, the original trim tool still trims only the selected mesh (not all meshes). It is an approximate face-centroid cut without cap. Manual face selection is the safer option for a local repair.

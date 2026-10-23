@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import {cleanDegenerate,cropGeometry,removeSmallIslands,bendGeometry,splitGeometryIslands,countTriangles,createConstruction} from '../src/meshOps.js';
+import {cleanDegenerate,cropGeometry,removeSmallIslands,bendGeometry,splitGeometryIslands,removePickedFaces,countTriangles,createConstruction} from '../src/meshOps.js';
 
 function geometry(points) {
   const g=new THREE.BufferGeometry();
@@ -70,4 +70,24 @@ test('UV-seam duplicate positions still count as one island',()=>{
   g.setIndex([0,1,2,3,4,5]);
   const x=splitGeometryIslands(g,{minFaces:1});
   assert.equal(x.totalIslands,1);
+});
+
+
+test('manual selection deletes only marked triangles and preserves UVs/material groups',()=>{
+ const g=geometry([0,0,0,1,0,0,0,1,0, 2,0,0,3,0,0,2,1,0, 4,0,0,5,0,0,4,1,0]);
+ g.setAttribute('uv',new THREE.Float32BufferAttribute([0,0,1,0,0,1, 0,0,1,0,0,1, 0,0,1,0,0,1],2));
+ g.addGroup(0,3,0);g.addGroup(3,3,1);g.addGroup(6,3,2);
+ const out=removePickedFaces(g,new Set([1]));
+ assert.equal(out.before,3);assert.equal(out.after,2);
+ assert.equal(out.geometry.getAttribute('uv').count,6);
+ assert.deepEqual(out.geometry.groups.map(x=>x.materialIndex),[0,2]);
+ assert.equal(g.getAttribute('position').count,9);
+});
+test('face removal follows Three.js indexed triangle selection',()=>{
+ const g=geometry([0,0,0,1,0,0,0,1,0,1,1,0]);
+ g.setIndex([0,1,2,1,3,2]);
+ const out=removePickedFaces(g,[0]);
+ assert.equal(out.after,1);
+ assert.equal(out.geometry.getAttribute('position').getX(0),1);
+ assert.throws(()=>removePickedFaces(g,[-1]));
 });

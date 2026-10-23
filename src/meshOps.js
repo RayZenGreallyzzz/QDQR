@@ -230,3 +230,18 @@ export function splitGeometryIslands(geometry,{maxParts=80,minFaces=5}={}) {
   }
   return {parts,totalIslands:sorted.length,faceCount};
 }
+
+
+/** Remove only the triangle indices selected by a brush/tap.
+ *  Other faces, UV coordinates, and material-group assignments remain intact.
+ *  Face indices come from Three.js Raycaster.faceIndex on the ORIGINAL geometry.
+ */
+export function removePickedFaces(geometry,faceIndices){
+  const positions=geometry.getAttribute('position');
+  if(!positions)throw new Error('Нет геометрии');
+  const count=Math.floor((geometry.index?geometry.index.count:positions.count)/3);
+  const ids=new Set(faceIndices);
+  if(!ids.size)throw new Error('Ничего не выделено');
+  for(const index of ids)if(!Number.isInteger(index)||index<0||index>=count)throw new Error('Неверный номер полигона');
+  return filterFaces(geometry,(_a,_b,_c,i)=>!ids.has(i));
+}
