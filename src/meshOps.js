@@ -1,6 +1,29 @@
 
 import * as THREE from 'three';
 
+// Retain per-face material slots so editing a decorated GLB does not replace
+// every material with the first one.
+function materialIndices(geometry, faceCount) {
+  const ids = new Int32Array(faceCount);
+  for(const group of geometry.groups || []) {
+    const from=Math.max(0,Math.floor(group.start/3));
+    const to=Math.min(faceCount,Math.ceil((group.start+group.count)/3));
+    for(let f=from;f<to;f++)ids[f]=group.materialIndex||0;
+  }
+  return ids;
+}
+function rebuildMaterialGroups(output, faceIds, faceMats) {
+  if(!faceIds.length)return;
+  let first=0,current=faceMats[faceIds[0]];
+  for(let i=1;i<=faceIds.length;i++){
+    const next=i===faceIds.length?-1:faceMats[faceIds[i]];
+    if(next!==current) {
+      output.addGroup(first*3,(i-first)*3,current);
+      first=i;current=next;
+    }
+  }
+}
+
 // Geometry editing uses non-indexed triangles. It deliberately leaves cut surfaces open;
 // we never call a destructive operation a watertight boolean.
 export function toTriangles(geometry) {
@@ -32,6 +55,7 @@ export function filterFaces(geometry, predicate) {
     }
     dst.setAttribute(name, new THREE.BufferAttribute(values, attr.itemSize, attr.normalized));
   }
+  rebuildMaterialGroups(dst,kept,materialIndices(geometry,Math.floor(pos.count/3)));
   if (dst.getAttribute('position')?.count) dst.computeVertexNormals();
   dst.computeBoundingBox();
   dst.computeBoundingSphere();
@@ -156,20 +180,16 @@ export function splitGeometryIslands(geometry,{maxParts=80,minFaces=5}={}) {
   for(let i=0;i<faceCount;i++)parents[i]=i;
   const find=x=>{while(parents[x]!==x){parents[x]=parents[parents[x]];x=parents[x];}return x;};
   const union=(a,b)=>{a=find(a);b=find(b);if(a===b)return;if(rank[a]<rank[b])[a,b]=[b,a];parents[b]=a;if(rank[a]===rank[b])rank[a]++;};
-  const owners=idx?new Int32Array(pos.count).fill(-1):new Map();
+  // Match positions even when original indices are split along UV/material seams.
+  const owners=new Map();
   const getVertex=fk=>idx?idx.getX(fk):fk;
   const eps=0.00005;
   for(let face=0;face<faceCount;face++){
     for(let k=0;k<3;k++){
       const vi=getVertex(face*3+k);
-      if(idx){
-        const previous=owners[vi];
-        if(previous<0)owners[vi]=face;else union(face,previous);
-      } else {
-        const key=Math.round(pos.getX(vi)/eps)+','+Math.round(pos.getY(vi)/eps)+','+Math.round(pos.getZ(vi)/eps);
-        const previous=owners.get(key);
-        if(previous===undefined)owners.set(key,face);else union(face,previous);
-      }
+      const key=Math.round(pos.getX(vi)/eps)+','+Math.round(pos.getY(vi)/eps)+','+Math.round(pos.getZ(vi)/eps);
+      const previous=owners.get(key);
+      if(previous===undefined)owners.set(key,face);else union(face,previous);
     }
   }
   const components=new Map();
@@ -188,6 +208,7 @@ export function splitGeometryIslands(geometry,{maxParts=80,minFaces=5}={}) {
   const faceSets=chosen.slice();
   if(rest.length)faceSets.push(rest);
   const parts=[];
+  const faceMats=materialIndices(geometry,faceCount);
   for(let i=0;i<faceSets.length;i++){
     const faceIds=faceSets[i];
     const output=new THREE.BufferGeometry();
@@ -202,6 +223,7 @@ export function splitGeometryIslands(geometry,{maxParts=80,minFaces=5}={}) {
       }
       output.setAttribute(name,new THREE.BufferAttribute(data,attr.itemSize,attr.normalized));
     }
+    rebuildMaterialGroups(output,faceIds,faceMats);
     output.computeBoundingBox();output.computeBoundingSphere();
     const isRemainder=i>=chosen.length;
     parts.push({geometry:output,faces:faceIds.length,name:isRemainder?'Прочие мелкие фрагменты':'Фрагмент '+(i+1)});

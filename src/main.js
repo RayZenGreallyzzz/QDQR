@@ -169,7 +169,6 @@ function applyGeometry(op, description){
     const out=op(selected.geometry);
     snapshot();
     selected.geometry=out.geometry||out;
-    if(Array.isArray(selected.material))selected.material=selected.material[0].clone();
     selectionBox.setFromObject(selected);refresh();
     notify(description+' · '+(out.before!==undefined?(out.before-out.after)+' треугольников удалено':'готово'));
   }catch(e){console.error(e);notify('Ошибка: '+e.message,true);}
@@ -185,7 +184,7 @@ function splitSelected(){
     group.position.copy(old.position);group.quaternion.copy(old.quaternion);group.scale.copy(old.scale);
     parent.add(group);old.removeFromParent();
     for(const item of result.parts){
-      const m=new THREE.Mesh(item.geometry,Array.isArray(old.material)?old.material[0].clone():old.material.clone());
+      const m=new THREE.Mesh(item.geometry,Array.isArray(old.material)?old.material.map(m=>m.clone()):old.material.clone());
       m.name=item.name+' ('+item.faces+' трис)';
       group.add(m);
     }

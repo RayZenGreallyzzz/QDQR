@@ -50,3 +50,24 @@ test('split indexed mesh atlas into isolated pieces without losing triangles',()
   assert.equal(split.parts.length,2);
   assert.equal(split.parts.reduce((n,p)=>n+p.faces,0),2);
 });
+
+test('preserve materials after filtering and island split',()=>{
+  const g=geometry([
+    0,0,0,1,0,0,0,1,0,
+    1,0,0,1,1,0,0,1,0,
+    9,0,0,10,0,0,9,1,0
+  ]);
+  g.addGroup(0,6,0);g.addGroup(6,3,1);
+  const result=cleanDegenerate(g).geometry;
+  assert.equal(result.groups.length,2);
+  assert.deepEqual(result.groups.map(x=>x.materialIndex),[0,1]);
+  const split=splitGeometryIslands(g,{minFaces:1});
+  assert.equal(split.totalIslands,2);
+  assert.deepEqual(split.parts.flatMap(p=>p.geometry.groups.map(x=>x.materialIndex)).sort(),[0,1]);
+});
+test('UV-seam duplicate positions still count as one island',()=>{
+  const g=geometry([0,0,0,1,0,0,0,1,0, 1,0,0,1,1,0,0,1,0]);
+  g.setIndex([0,1,2,3,4,5]);
+  const x=splitGeometryIslands(g,{minFaces:1});
+  assert.equal(x.totalIslands,1);
+});
