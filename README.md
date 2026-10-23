@@ -58,3 +58,10 @@ Capacitor 8 needs **Node.js 22+**, Android SDK and JDK 21 for cloud builds. The 
 4. UV editor + texture/normal/AO baking, texture atlas packing and LOD.
 5. Module library with exact pivot/snapping rules, quarter-round corners, off-axis roof pieces and collision meshes for Godot.
 6. Stable release signing for simple APK upgrades and local project files.
+
+## Scene and camera — tablet improvements (0.1.2)
+
+- Open **☷ Сцена** on tablet. Tap **Удалить набор** to remove a selected imported file as one group (with confirmation); or tap **×** beside its filename. **Очистить сцену** removes all assets (with confirmation). Undo restores the previous scene when available.
+- Imported GLB, GLTF, OBJ and STL files are each grouped into their own top-level bundle so a single delete can remove the entire import.
+- Above the view buttons, switch between **⟳ Вращать** and **✥ Сдвигать**. In pan mode a single finger moves the camera freely, no world-origin lock. Two fingers pan/zoom in either mode. **◎ К объекту** focuses selected set or mesh; **⌂ Вся сцена** resets to the complete scene.
+- Desktop: right mouse drag pans in both modes; F focuses the current selection; H toggles camera navigation mode.

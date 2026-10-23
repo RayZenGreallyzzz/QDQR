@@ -37,16 +37,19 @@
     <main class="viewport-wrap">
       <div id="viewport"></div>
       <div class="viewport-hud"><span id="status">Готово · выберите модель или строительный модуль</span><span id="stats">0 трис · 0 мешей</span></div>
-      <div class="viewport-controls"><button id="viewFront">Спереди</button><button id="viewSide">Сбоку</button><button id="viewTop">Сверху</button><button id="viewFit">Вписать</button></div>
+      <div class="camera-tools" aria-label="Управление камерой"><div class="camera-modes"><button id="cameraOrbit" class="active" aria-pressed="true">⟳ Вращать</button><button id="cameraPan" aria-pressed="false">✥ Сдвигать</button></div><button id="viewFocus">◎ К объекту</button><button id="viewFit">⌂ Вся сцена</button></div>
+      <div class="viewport-controls"><button id="viewFront">Спереди</button><button id="viewSide">Сбоку</button><button id="viewTop">Сверху</button></div>
     </main>
     <aside class="sidebar right">
       <div class="panel-heading">Сцена <span id="objectCount">0</span></div>
+      <div class="scene-actions"><button id="deleteBatchBtn" class="warn">🗑 Удалить набор</button><button id="clearSceneBtn" class="warn">Очистить сцену</button></div>
+      <p class="scene-hint">Выбери набор или деталь. «Удалить набор» удалит всю загрузку; «Очистить сцену» — всё содержимое.</p>
       <div class="outline" id="objectTree"><div class="empty">Пока ничего нет</div></div>
       <section><h3>Свойства</h3><p class="hint" id="selectedName">Ничего не выбрано</p><div class="property-row"><label>Имя</label><input id="objectName" placeholder="Имя объекта"/></div><div class="property-row"><label>X / Y / Z (позиция)</label><div class="three"><input id="posX" type="number" step=".05"/><input id="posY" type="number" step=".05"/><input id="posZ" type="number" step=".05"/></div></div><div class="property-row"><label>Масштаб X / Y / Z</label><div class="three"><input id="scaleX" type="number" step=".05"/><input id="scaleY" type="number" step=".05"/><input id="scaleZ" type="number" step=".05"/></div></div></section>
       <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
     </aside>
   </div>
-  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1</span><button id="mobileScene">☷ Сцена</button></footer>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.2</span><button id="mobileScene">☷ Сцена</button></footer>
   <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
   <input id="imagePicker" type="file" accept="image/*" hidden/>
   <div id="toast" role="status" aria-live="polite"></div>

@@ -23,7 +23,20 @@ renderer.setPixelRatio(Math.min(devicePixelRatio||1,lowMemoryMobile?1.1:1.7));
 viewport.appendChild(renderer.domElement);
 const orbit=new OrbitControls(camera,renderer.domElement);
 orbit.enableDamping=true; orbit.dampingFactor=.09;
-orbit.screenSpacePanning=true; orbit.minDistance=.07; orbit.maxDistance=250;
+orbit.screenSpacePanning=true; orbit.enablePan=true; orbit.panSpeed=1.15; orbit.minDistance=.07; orbit.maxDistance=250;
+let cameraNavMode='orbit';
+function setCameraNavigation(mode){
+ cameraNavMode=mode==='pan'?'pan':'orbit';
+ orbit.mouseButtons.LEFT=cameraNavMode==='pan'?THREE.MOUSE.PAN:THREE.MOUSE.ROTATE;
+ orbit.mouseButtons.MIDDLE=THREE.MOUSE.DOLLY;orbit.mouseButtons.RIGHT=THREE.MOUSE.PAN;
+ orbit.touches.ONE=cameraNavMode==='pan'?THREE.TOUCH.PAN:THREE.TOUCH.ROTATE;
+ orbit.touches.TWO=THREE.TOUCH.DOLLY_PAN;
+ $('cameraOrbit').classList.toggle('active',cameraNavMode==='orbit');
+ $('cameraPan').classList.toggle('active',cameraNavMode==='pan');
+ $('cameraOrbit').setAttribute('aria-pressed',String(cameraNavMode==='orbit'));
+ $('cameraPan').setAttribute('aria-pressed',String(cameraNavMode==='pan'));
+ setStatus(cameraNavMode==='pan'?'Камера: перемещение одним пальцем · двумя масштаб':'Камера: вращение одним пальцем · двумя сдвиг и масштаб');
+}
 scene.add(new THREE.HemisphereLight(0xc2deff,0x4d382b,2.2));
 const key=new THREE.DirectionalLight(0xffe4bd,3.2);key.position.set(7,12,9);scene.add(key);
 const fill=new THREE.DirectionalLight(0x8baeea,1.2);fill.position.set(-7,6,-8);scene.add(fill);
@@ -75,6 +88,14 @@ function fitCamera(){
   }
   orbit.update();
 }
+function focusSelected(){
+ if(!selected)return notify('Сначала выбери деталь или набор',true);
+ const box=new THREE.Box3().setFromObject(selected);if(box.isEmpty())return;
+ const center=box.getCenter(new THREE.Vector3()), offset=camera.position.clone().sub(orbit.target);
+ offset.setLength(Math.max(box.getSize(new THREE.Vector3()).length()*1.15,.65));
+ camera.position.copy(center).add(offset);orbit.target.copy(center);orbit.update();
+ notify('Камера наведена на '+(selected.name||'объект'));
+}
 function view(axis) {
   const center=orbit.target.clone(),d=Math.max(camera.position.distanceTo(center),3);
   if(axis==='front')camera.position.set(center.x,center.y,center.z+d);
@@ -82,11 +103,46 @@ function view(axis) {
   if(axis==='top')camera.position.set(center.x,center.y+d,center.z+.001);
   camera.lookAt(center);orbit.update();
 }
+function topLevelObject(obj){
+ if(!obj||obj===root)return null;
+ while(obj.parent&&obj.parent!==root)obj=obj.parent;
+ return obj.parent===root?obj:null;
+}
+function pendingBatch(){
+ const selectedBatch=topLevelObject(selected);
+ if(selectedBatch)return selectedBatch;
+ for(let i=root.children.length-1;i>=0;i--)if(root.children[i].userData?.importBatch)return root.children[i];
+ return null;
+}
+function deleteBatch(batch=pendingBatch()){
+ if(!batch)return notify('Выбери набор в разделе «Сцена»',true);
+ const label=batch.name||'Набор';
+ if(!window.confirm('Удалить весь набор «'+label+'» со всеми деталями? Другие объекты останутся.'))return;
+ snapshot();
+ if(selected && (selected===batch||batch.getObjectById(selected.id))){
+   transform.detach();selected=null;selectionBox.visible=false;
+ }
+ batch.removeFromParent();if(!root.children.length)fileBase='phoenix_module';
+ fitCamera();refresh();notify('Удалён набор «'+label+'». Можно отменить.');
+}
 function refresh(){
   const stat=countTriangles(root);
   $('stats').textContent=stat.triangles.toLocaleString('ru-RU')+' трис · '+stat.meshes+' мешей';
   $('objectCount').textContent=String(stat.meshes);
+  $('deleteBatchBtn').disabled=!pendingBatch();
+  $('clearSceneBtn').disabled=!root.children.length;
   $('objectTree').replaceChildren();
+  for(const batch of root.children){
+    const row=document.createElement('div');row.className='tree-row';
+    const b=document.createElement('button');b.className='node'+(batch===selected?' selected':'');
+    b.textContent='▣ '+(batch.name||'Набор');
+    b.title='Выбрать весь набор';b.onclick=()=>select(batch);row.append(b);
+    const del=document.createElement('button');del.className='tree-delete warn';del.textContent='×';
+    del.title='Удалить весь этот набор';
+    del.setAttribute('aria-label','Удалить '+(batch.name||'набор'));
+    del.onclick=()=>deleteBatch(batch);row.append(del);
+    $('objectTree').append(row);
+  }
   if(stat.meshes===0)$('objectTree').innerHTML='<div class="empty">Нажми «Импорт» или выбери модуль</div>';
   let idx=0;
   root.traverse(o=>{
@@ -103,7 +159,7 @@ function refresh(){
   updateProperties();
 }
 function select(obj){
-  if(obj && !obj.isMesh)return;
+  if(obj && !obj.isMesh && !obj.isGroup)return;
   selected=obj;transform.detach();
   if(obj){
     transform.attach(obj);
@@ -127,7 +183,7 @@ function activeMaterial(){
   return new THREE.MeshStandardMaterial({color:$('decorColor').value,metalness:Number($('metal').value),roughness:Number($('rough').value),side:THREE.DoubleSide});
 }
 function addObject(m){
-  snapshot();root.add(m);select(m.isMesh?m:m.children.find(c=>c.isMesh)||null);fitCamera();
+  snapshot();root.add(m);select(m);if(root.children.length===1)fitCamera();
   notify('Добавлено. Объект можно перемещать и сохранять.');
 }
 function addPart(type){
@@ -238,6 +294,7 @@ function isolateSelection(){
 }
 function deleteSelection(){
   if(!selected)return;
+  if(selected.isGroup)return deleteBatch(selected);
   snapshot();transform.detach();selected.removeFromParent();selected=null;
   selectionBox.visible=false;refresh();notify('Фрагмент удалён');
 }
@@ -301,9 +358,10 @@ async function importFile(file){
     if(!stats.meshes)throw new Error('Файл не содержит 3D-мешей');
     if(stats.triangles>1300000)notify('Очень тяжёлая модель; на планшете возможны тормоза');
     snapshot();
-    obj.name=file.name;root.add(obj);fileBase=safeName(file.name.replace(/\.[^.]+$/,''));
+    const bundle=new THREE.Group();bundle.name=file.name;bundle.userData.importBatch=true;
+    bundle.add(obj);root.add(bundle);fileBase=safeName(file.name.replace(/\.[^.]+$/,''));
     const mesh=(()=>{let v=null;obj.traverse(o=>{if(!v&&o.isMesh)v=o;});return v;})();
-    select(mesh);fitCamera();
+    select(bundle);fitCamera();
     setStatus('Загружено · '+file.name);
     notify(file.name+': '+stats.meshes+' частей, '+stats.triangles.toLocaleString('ru-RU')+' треугольников');
     lastFiles.push(file.name);
@@ -366,6 +424,11 @@ function initEvents(){
   $('filePicker').onchange=async e=>{await importFile(e.target.files[0]);e.target.value='';};
   $('sampleBtn').onclick=sample;
   $('newBtn').onclick=newScene;
+  $('clearSceneBtn').onclick=newScene;
+  $('deleteBatchBtn').onclick=()=>deleteBatch();
+  $('cameraOrbit').onclick=()=>setCameraNavigation('orbit');
+  $('cameraPan').onclick=()=>setCameraNavigation('pan');
+  $('viewFocus').onclick=focusSelected;
   $('resetCamera').onclick=fitCamera;$('viewFit').onclick=fitCamera;
   $('viewFront').onclick=()=>view('front');$('viewSide').onclick=()=>view('side');$('viewTop').onclick=()=>view('top');
   $('exportBtn').onclick=()=>save('glb');$('saveBtn').onclick=()=>save($('format').value);
@@ -434,6 +497,8 @@ function initEvents(){
   window.addEventListener('keydown',e=>{
     if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))return;
     if(e.key==='Delete')deleteSelection();
+    if(e.key.toLowerCase()==='f')focusSelected();
+    if(e.key.toLowerCase()==='h')setCameraNavigation(cameraNavMode==='pan'?'orbit':'pan');
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();if(e.shiftKey)redo();else undo();}
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save('glb');}
     if(e.key.toLowerCase()==='g')changeMode('translate');
@@ -449,4 +514,4 @@ const resizeObserver=new ResizeObserver(()=>{
 resizeObserver.observe(viewport);
 let lastDraw=0;
 function loop(now=0){requestAnimationFrame(loop);if(document.hidden || (lowMemoryMobile && now-lastDraw<32))return;lastDraw=now;orbit.update();renderer.render(scene,camera);}
-initEvents();refresh();loop();
+initEvents();setCameraNavigation('orbit');refresh();loop();
