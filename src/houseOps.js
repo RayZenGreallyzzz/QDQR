@@ -56,7 +56,7 @@ export function putOnFloor(floor,obj,{seat=true}={}){
   return obj;
 }
 
-export function addPresetToFloor(floor,type,material,snap=.25,{preferred=null}={}){
+export function addPresetToFloor(floor,type,material,snap=.25,{preferred=null,autoDock=true}={}){
   if(!floor?.userData?.qdqrFloor)throw new Error('Выберите этаж');
   if(!Number.isFinite(snap)||snap<=0)throw new Error('Неверный шаг привязки');
   const module=createConstruction(type,material);
@@ -66,7 +66,7 @@ export function addPresetToFloor(floor,type,material,snap=.25,{preferred=null}={
   // Actual wall centerline sockets are authoritative. No BBox edge snap for
   // straight walls, doors/windows and 90-degree curved corners.
   if(module.userData.qdqrWallSockets){
-    const join=dockNewModule(module,floor,{preferred});
+    const join=autoDock?dockNewModule(module,floor,{preferred}):null;
     if(join)module.userData.qdqrLastJoin={
       targetName:join.anchor.name,
       error:join.error

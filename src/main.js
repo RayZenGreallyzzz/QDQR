@@ -417,7 +417,7 @@ function placePresetAction(){
     const preferred=selected && isWallModule(selected) && selected.parent===floor?selected:null;
     snapshot();
     const module=addPresetToFloor(floor,$('housePreset').value,activeMaterial(),.25,
-      {preferred:$('autoJoinWalls').checked?preferred:null});
+      {preferred,autoDock:$('autoJoinWalls').checked});
     select(module);
     notify(module.userData.qdqrLastJoin?
       'Модуль автоматически состыкован по центральной оси стены.':
