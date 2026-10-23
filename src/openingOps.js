@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
+import { Brush, Evaluator, SUBTRACTION, HOLLOW_SUBTRACTION } from 'three-bvh-csg';
 
 export function createOpeningGeometry(kind,width,height,depth){
   if(!['door','window','arch'].includes(kind))throw new Error('Неизвестный тип проёма');
@@ -76,8 +76,18 @@ export function cutWallOpening(wall,spec,{maxTotalFaces=120000}={}){
   let total=0;const changes=[];let touched=0;
   try{
     const meshes=[];
+    const decorMeshes=new Set();
     wall.traverse(obj=>{
-      if(obj===cutter || !obj.isMesh || obj.userData?.qdqrOpeningTrim || !obj.visible)return;
+      if(obj===cutter || !obj.isMesh || !obj.visible)return;
+      // Existing frames and inserted leaves should stay untouched.
+      // A separate picture/decal plane on the wall uses hollow subtraction so
+      // it won't visually cover the opening after the solid masonry is cut.
+      let isDecor=false;
+      for(let p=obj;p && p!==wall;p=p.parent){
+        if(p.userData?.qdqrOpeningTrim)return;
+        if(p.userData?.qdqrAttachedDecor)isDecor=true;
+      }
+      if(isDecor)decorMeshes.add(obj);
       if(obj.isSkinnedMesh)throw new Error('Нельзя вырезать отверстие в риггированной модели');
       const geo=obj.geometry;
       if(!geo?.getAttribute('position'))return;
@@ -111,7 +121,8 @@ export function cutWallOpening(wall,spec,{maxTotalFaces=120000}={}){
       const transform=wallToMesh.clone().multiply(cutter.matrix);
       transform.decompose(brushB.position,brushB.quaternion,brushB.scale);
       brushB.updateMatrixWorld(true);
-      const result=evaluator.evaluate(brushA,brushB,SUBTRACTION);
+      const operation=decorMeshes.has(mesh)?HOLLOW_SUBTRACTION:SUBTRACTION;
+      const result=evaluator.evaluate(brushA,brushB,operation);
       const g=result.geometry;
       // The evaluator can leave a short drawRange; truncate it so a GLB
       // exporter never includes unused buffer triangles.

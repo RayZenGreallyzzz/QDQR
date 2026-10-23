@@ -66,3 +66,18 @@ test('rotated wall can be cut in wall local frame',()=>{
  const hits=new THREE.Raycaster(point,dir,0,10).intersectObject(m,true);
  assert.equal(hits.length,0);
 });
+
+test('a textured decal plane attached to wall is opened along with masonry',()=>{
+ const wallMesh=wall();
+ const decal=new THREE.Mesh(new THREE.PlaneGeometry(4,3),
+   new THREE.MeshStandardMaterial({color:0xffffff,side:THREE.DoubleSide}));
+ decal.userData.qdqrAttachedDecor=true;
+ decal.position.z=.16; wallMesh.add(decal);
+ const spec=defaultOpening('door',wallMesh);
+ const result=cutWallOpening(wallMesh,spec);
+ assert.equal(result.count,2);
+ wallMesh.updateWorldMatrix(true,true);
+ const center=wallMesh.localToWorld(new THREE.Vector3(0,spec.centerY,3));
+ const ray=new THREE.Raycaster(center,new THREE.Vector3(0,0,-1),0,8);
+ assert.equal(ray.intersectObject(wallMesh,true).length,0);
+});
