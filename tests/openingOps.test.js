@@ -16,7 +16,7 @@ function shoot(model,x,y,z=4){
 test('door cut forms an actual through-hole, not transparent overlay',()=>{
  const m=wall();
  const def=defaultOpening('door',m);
- assert.ok(Math.abs(def.centerY-def.height/2)<1e-5);
+ assert.ok(Math.abs(def.centerY-(def.bbox.min.y+def.height/2))<1e-5);
  assert.ok(shoot(m,0,1)>0);
  const out=cutWallOpening(m,def);
  assert.equal(out.count,1);
@@ -28,7 +28,7 @@ test('window CSG opens only at window height; masonry remains underneath',()=>{
  const def=defaultOpening('window',m);
  const out=cutWallOpening(m,def);
  assert.equal(out.count,1);
- assert.equal(shoot(m,0,def.centerY),0);
+ assert.equal(shoot(m,0,def.centerY+m.position.y),0);
  assert.ok(shoot(m,0,.1)>0);
  assert.ok(shoot(m,1.8,1.4)>0);
 });
@@ -61,7 +61,7 @@ test('rotated wall can be cut in wall local frame',()=>{
  const res=cutWallOpening(m,def);
  assert.equal(res.count,1);
  m.updateWorldMatrix(true,true);
- const point=m.localToWorld(new THREE.Vector3(0,1,4));
+ const point=m.localToWorld(new THREE.Vector3(0,def.centerY,4));
  const dir=new THREE.Vector3(0,0,-1).transformDirection(m.matrixWorld);
  const hits=new THREE.Raycaster(point,dir,0,10).intersectObject(m,true);
  assert.equal(hits.length,0);
