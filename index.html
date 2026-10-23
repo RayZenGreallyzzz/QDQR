@@ -123,6 +123,39 @@
         </section>
       </div>
       <div class="tab-page" id="tab-decor">
+        <section class="glass-panel">
+          <h3>✧ Стекло в оконную раму</h3>
+          <p class="hint">Выбери оконную модель. Приложение найдёт пустые секции внутри узора и предложит заполнить их стеклом.</p>
+          <button id="glassScanBtn" class="primary">1 · Найти отверстия</button>
+          <p id="glassStatus" class="hint">Сначала выбери раму на сцене.</p>
+          <div id="glassOptions" hidden>
+            <div class="glass-type-row">
+              <button data-glass="clear">Прозрачное</button>
+              <button data-glass="colored" class="active">Тонированное</button>
+              <button data-glass="stained">Витраж</button>
+            </div>
+            <label class="check"><input id="glassAll" type="checkbox" checked/> Заполнить все секции</label>
+            <p class="hint" id="glassCount">Найдено: 0</p>
+            <label for="glassColor">Цвет стекла</label>
+            <input id="glassColor" type="color" value="#719ac7"/>
+            <label for="glassTransparency">Прозрачность: <output id="glassTransparencyLabel">55%</output></label>
+            <input type="range" id="glassTransparency" min="0" max="95" step="5" value="55"/>
+            <div id="glassStainedOptions" hidden>
+              <label for="glassPalette">Цвета витража</label>
+              <select id="glassPalette">
+                <option value="mixed">Разноцветный</option><option value="blue">Синий</option>
+                <option value="red">Красный</option><option value="green">Зелёный</option>
+                <option value="amber">Янтарный</option>
+              </select>
+              <label for="glassFragments">Размер фрагментов</label>
+              <select id="glassFragments"><option value="small">Мелкие</option><option value="large">Крупные</option></select>
+            </div>
+            <button id="glassCommitBtn" class="accent">2 · Вставить стекло</button>
+            <button id="glassCancelBtn">Отмена</button>
+            <p class="hint">Для заполнения одной секции выключи «Заполнить все» и коснись стеклянной области на модели. Каменная рама не меняется.</p>
+          </div>
+          <button id="glassSaveBtn">↥ Сохранить окно со стеклом GLB</button>
+        </section>
         <section><h3>Объёмный декор</h3><div class="preset-grid"><button data-add="box">▢ Блок</button><button data-add="sphere">● Сфера</button><button data-add="cylinder">⬡ Цилиндр</button><button data-add="torus">◯ Кольцо</button><button data-add="plane">▭ Картина</button><button data-add="plaque">▣ Табличка</button></div><label>Цвет материала</label><input id="decorColor" type="color" value="#bd9568"/><label>Металличность <output id="metalVal">0.2</output></label><input id="metal" type="range" min="0" max="1" step=".05" value=".2"/><label>Шероховатость <output id="roughVal">0.7</output></label><input id="rough" type="range" min="0" max="1" step=".05" value=".7"/><button id="materialBtn">Применить материал</button></section>
         <section class="wall-texture-panel"><h3>▧ Текстуры и отделка стен</h3>
           <p class="hint">Выдели стену или группу стен. Картинка будет нанесена на саму геометрию стены, а не добавлена отдельным объектом.</p>
@@ -163,7 +196,7 @@
       <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
     </aside>
   </div>
-  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.7</span><button id="mobileScene">☷ Сцена</button></footer>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.8</span><button id="mobileScene">☷ Сцена</button></footer>
   <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
   <input id="imagePicker" type="file" accept="image/*" hidden/>
   <div id="toast" role="status" aria-live="polite"></div>

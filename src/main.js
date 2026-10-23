@@ -11,6 +11,7 @@ import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, removePickedFaces, countTriangles, createConstruction} from './meshOps.js';
 import {bakeStaticAssembly} from './assemblyOps.js';
 import {projectTextureToWall,attachDecorToWall} from './surfaceOps.js';
+import {captureFrameSilhouette,buildGlassPieces} from './glassOps.js';
 import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOpeningTrim} from './openingOps.js';
 import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility} from './houseOps.js';
 
@@ -58,6 +59,8 @@ faceOverlay.name='Редактор: выделенные грани';faceOverlay
 faceOverlay.matrixAutoUpdate=false;scene.add(faceOverlay);
 let facePickEnabled=false,markedFaces=new Set();
 let savedWallBase=null,imagePickMode='separate';
+let glassSource=null,glassScan=null,glassPreview=null,glassKind='colored';
+let glassSelectedIds=new Set();
 let openingKind='door',openingTarget=null,openingSpec=null,openingActive=false,openingDragging=false;
 const openingGhost=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshBasicMaterial({
   color:0xf0bd5c,opacity:.34,transparent:true,depthWrite:false,
@@ -93,6 +96,7 @@ function snapshot(){
   future=[];
 }
 function restore(snap){
+  clearGlassPreview({hidePanel:true});
   if(openingActive)stopOpening({silent:true});
   setFacePickMode(false);markedFaces.clear();updateFaceOverlay();
   transform.detach();selected=null;root.clear();
@@ -141,6 +145,7 @@ function pendingBatch(){
  return null;
 }
 function deleteBatch(batch=pendingBatch()){
+ clearGlassPreview({hidePanel:true});
  if(openingActive)stopOpening({silent:true});
  if(!batch)return notify('Выбери набор в разделе «Сцена»',true);
  const label=batch.name||'Набор';
@@ -573,6 +578,151 @@ async function commitOpening(){
     notify('Ошибка вырезания: '+e.message,true);
   }
 }
+
+function hasGlassSelectedSource(){
+  if(!glassSource)return false;
+  let p=glassSource;
+  while(p&&p!==root)p=p.parent;
+  return p===root;
+}
+function glassOptions(){
+  return {
+    kind:glassKind,color:$('glassColor').value,
+    opacity:Math.max(.05,1-Number($('glassTransparency').value)/100),
+    all:$('glassAll').checked,
+    activeIds:[...glassSelectedIds],
+    palette:$('glassPalette').value,
+    fragments:$('glassFragments').value
+  };
+}
+function clearGlassPreview({hidePanel=false}={}){
+  if(glassPreview){
+    scene.remove(glassPreview);
+    glassPreview.traverse(obj=>{
+      if(obj.isMesh){
+        obj.geometry?.dispose();
+        if(obj.material?.map?.isCanvasTexture)obj.material.map.dispose();
+        obj.material?.dispose();
+      }
+    });
+    glassPreview=null;
+  }
+  glassScan=null;glassSource=null;glassSelectedIds.clear();
+  if(hidePanel)$('glassOptions').hidden=true;
+}
+function refreshGlassPreview({rebuild=false}={}){
+  if(!glassScan||!glassSource)return;
+  if(!hasGlassSelectedSource()){clearGlassPreview({hidePanel:true});return;}
+  const settings=glassOptions();
+  if(rebuild||!glassPreview){
+    if(glassPreview){
+      scene.remove(glassPreview);
+      glassPreview.traverse(obj=>{
+        if(obj.isMesh){obj.geometry?.dispose();obj.material?.map?.dispose();obj.material?.dispose();}
+      });
+    }
+    glassPreview=buildGlassPieces(glassScan.regions,glassScan.projection,{
+      ...settings,all:true
+    });
+    glassPreview.name='Предпросмотр стекла';
+    glassPreview.matrixAutoUpdate=false;
+    scene.add(glassPreview);
+  }
+  glassSource.updateWorldMatrix(true,false);
+  glassPreview.matrix.copy(glassSource.matrixWorld);
+  glassPreview.matrixWorldNeedsUpdate=true;
+  const all=settings.all;
+  for(const mesh of glassPreview.children){
+    const chosen=all||glassSelectedIds.has(mesh.userData.qdqrGlassId);
+    mesh.material.opacity=chosen?settings.opacity:.06;
+    mesh.material.needsUpdate=true;
+  }
+  $('glassCommitBtn').disabled=!all&&!glassSelectedIds.size;
+  const total=glassScan.regions.length;
+  const count=all?total:glassSelectedIds.size;
+  $('glassCount').textContent='Найдено '+total+' секций · выбрано '+count;
+  $('glassStatus').textContent=all?'Проверь подсветку и нажми «Вставить стекло».':
+    'Касайся секций на модели, чтобы выбрать нужные.';
+}
+async function detectGlass(){
+  if(!selected)return notify('Сначала выбери оконную раму',true);
+  if(openingActive)stopOpening({silent:true});
+  if(facePickEnabled)setFacePickMode(false);
+  const target=selected;
+  if(countTriangles(target).triangles>320000 && lowMemoryMobile)
+    return notify('Рама слишком тяжёлая для анализа на этом планшете. Сначала упрости модель.',true);
+  $('glassStatus').textContent='Определяю внутренние отверстия рамы…';
+  $('glassScanBtn').disabled=true;
+  await new Promise(resolve=>requestAnimationFrame(resolve));
+  try{
+    clearGlassPreview();
+    const res=captureFrameSilhouette(renderer,target,{longSide:lowMemoryMobile?320:440});
+    glassSource=target;
+    glassScan=res;
+    glassSelectedIds.clear();
+    $('glassAll').checked=true;
+    $('glassOptions').hidden=false;
+    refreshGlassPreview({rebuild:true});
+    notify('Обнаружено '+res.regions.length+' замкнутых секций. Выбери вид стекла.');
+  }catch(e){
+    console.error(e);
+    $('glassStatus').textContent='Автопоиск не удался: '+e.message;
+    notify('Поиск секций: '+e.message,true);
+    $('glassOptions').hidden=true;
+  }finally{
+    $('glassScanBtn').disabled=false;
+  }
+}
+function chooseGlassStyle(kind){
+  glassKind=kind;
+  document.querySelectorAll('[data-glass]').forEach(b=>b.classList.toggle('active',b.dataset.glass===kind));
+  $('glassStainedOptions').hidden=kind!=='stained';
+  refreshGlassPreview({rebuild:true});
+}
+function selectGlassAtPointer(e){
+  if(!glassPreview||!glassScan)return false;
+  const rect=renderer.domElement.getBoundingClientRect();
+  const pt=new THREE.Vector2((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);
+  glassPreview.updateWorldMatrix(true,true);
+  raycaster.setFromCamera(pt,camera);
+  const hits=raycaster.intersectObjects(glassPreview.children,true);
+  if(!hits.length)return false;
+  const id=hits[0].object.userData.qdqrGlassId;
+  if(!id)return false;
+  if($('glassAll').checked){
+    $('glassAll').checked=false;
+    glassSelectedIds.clear();glassSelectedIds.add(id);
+  }else if(glassSelectedIds.has(id)){
+    glassSelectedIds.delete(id);
+  }else glassSelectedIds.add(id);
+  refreshGlassPreview();
+  return true;
+}
+function commitGlass(){
+  if(!glassScan || !hasGlassSelectedSource())return notify('Сначала найди секции в оконной раме',true);
+  const opts=glassOptions();
+  if(!opts.all&&!opts.activeIds.length)return notify('Коснись нужной секции или выбери «Все»',true);
+  try{
+    const pieces=buildGlassPieces(glassScan.regions,glassScan.projection,opts);
+    if(!pieces.children.length)return notify('Нет секций для стекла',true);
+    snapshot();
+    const old=glassSource.children.filter(x=>x.userData?.qdqrGlassContainer);
+    for(const x of old)x.removeFromParent();
+    const target=glassSource;
+    target.add(pieces);
+    clearGlassPreview({hidePanel:true});
+    select(target);
+    notify('Вставлено стекло в '+pieces.children.length+' секций. Можно сохранить GLB.');
+  }catch(e){console.error(e);notify('Стекло: '+e.message,true);}
+}
+async function saveGlassWindow(){
+  const target=hasGlassSelectedSource()?glassSource:selected;
+  if(!target)return notify('Выбери раму со вставленным стеклом',true);
+  let found=false;target.traverse(o=>{if(o.userData?.qdqrGlassPane)found=true;});
+  if(!found)return notify('Сначала вставь стекло в раму',true);
+  // Preview meshes are attached to 'scene', not 'root', and never exported.
+  await save('glb',target,(target.name||'Фэнтези окно')+'_со_стеклом');
+}
 function activeMaterial(){
   return new THREE.MeshStandardMaterial({color:$('decorColor').value,metalness:Number($('metal').value),roughness:Number($('rough').value),side:THREE.DoubleSide});
 }
@@ -595,6 +745,7 @@ function addPart(type){
   addObject(mesh);
 }
 function newScene(){
+  clearGlassPreview({hidePanel:true});
   if(openingActive)stopOpening({silent:true});
   if(root.children.length && !window.confirm('Очистить всю сцену? Сначала сохраните нужные модели.'))return;
   setFacePickMode(false);clearMarkedFaces();
@@ -1028,7 +1179,7 @@ function screenshot(){
 }
 function initEvents(){
   $('openBtn').onclick=()=>$('filePicker').click();
-  $('filePicker').onchange=async e=>{await importFile(e.target.files[0]);e.target.value='';};
+  $('filePicker').onchange=async e=>{clearGlassPreview({hidePanel:true});await importFile(e.target.files[0]);e.target.value='';};
   $('sampleBtn').onclick=sample;
   $('newBtn').onclick=newScene;
   $('clearSceneBtn').onclick=newScene;
@@ -1039,7 +1190,7 @@ function initEvents(){
   $('resetCamera').onclick=fitCamera;$('viewFit').onclick=fitCamera;
   $('viewFront').onclick=()=>view('front');$('viewSide').onclick=()=>view('side');$('viewTop').onclick=()=>view('top');
   $('exportBtn').onclick=()=>save('glb');$('saveBtn').onclick=()=>save($('format').value);
-  $('clearSelection').onclick=()=>{if(openingActive)stopOpening({silent:true});setFacePickMode(false);clearMarkedFaces();select(null);};
+  $('clearSelection').onclick=()=>{clearGlassPreview({hidePanel:true});if(openingActive)stopOpening({silent:true});setFacePickMode(false);clearMarkedFaces();select(null);};
   $('undoBtn').onclick=undo;$('redoBtn').onclick=redo;
   $('centerPivot').onclick=centerPivot;$('groundBtn').onclick=ground;
   $('deleteBtn').onclick=deleteSelection;$('isolateBtn').onclick=isolateSelection;
@@ -1094,6 +1245,19 @@ function initEvents(){
     if(!selected)return notify('Выберите объект');
     snapshot();selected.material=activeMaterial();refresh();notify('Материал применён');
   };
+  $('glassScanBtn').onclick=detectGlass;
+  $('glassCommitBtn').onclick=commitGlass;
+  $('glassCancelBtn').onclick=()=>{clearGlassPreview({hidePanel:true});$('glassStatus').textContent='Выделение отменено.';};
+  $('glassSaveBtn').onclick=saveGlassWindow;
+  for(const b of document.querySelectorAll('[data-glass]'))b.onclick=()=>chooseGlassStyle(b.dataset.glass);
+  $('glassAll').onchange=()=>{if($('glassAll').checked)glassSelectedIds.clear();refreshGlassPreview();};
+  $('glassColor').oninput=()=>refreshGlassPreview({rebuild:true});
+  $('glassTransparency').oninput=()=>{
+    $('glassTransparencyLabel').textContent=$('glassTransparency').value+'%';
+    refreshGlassPreview();
+  };
+  $('glassPalette').onchange=()=>refreshGlassPreview({rebuild:true});
+  $('glassFragments').onchange=()=>refreshGlassPreview({rebuild:true});
   $('emblemBtn').onclick=canvasEmblem;
   $('rememberWallBtn').onclick=rememberSelectedWall;
   $('attachDecorBtn').onclick=attachSelectedWallDecor;
@@ -1142,6 +1306,20 @@ function initEvents(){
     e.stopImmediatePropagation();e.preventDefault();
   },true);
   renderer.domElement.addEventListener('pointercancel',()=>{openingDragging=false;},true);
+  // Click-to-select panes in the glass preview without picking the wall itself.
+  let downGlass=null;
+  renderer.domElement.addEventListener('pointerdown',e=>{
+    if(glassScan&&e.isPrimary)downGlass={x:e.clientX,y:e.clientY,id:e.pointerId};
+  },true);
+  renderer.domElement.addEventListener('pointerup',e=>{
+    if(!glassScan||!downGlass||e.pointerId!==downGlass.id)return;
+    const delta=Math.hypot(e.clientX-downGlass.x,e.clientY-downGlass.y);
+    downGlass=null;
+    if(delta>10)return;
+    if(selectGlassAtPointer(e)){
+      e.stopImmediatePropagation();e.preventDefault();
+    }
+  },true);
   renderer.domElement.addEventListener('pointerdown',e=>{if(!e.isPrimary){down=null;return;}down={x:e.clientX,y:e.clientY,id:e.pointerId,time:performance.now()};});
   renderer.domElement.addEventListener('pointerup',e=>{
     if(!down || e.pointerId!==down.id || (!orbit.enabled&&!facePickEnabled))return;
