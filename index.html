@@ -39,6 +39,21 @@
       </div>
       <div class="tab-page" id="tab-build">
         <section><h3>Строительные заготовки</h3><p class="hint">Размеры в метрах. Отдельные детали остаются редактируемыми.</p><div class="preset-grid"><button data-preset="wall">▥ Стена</button><button data-preset="floor">▤ Пол</button><button data-preset="corner">◔ Угол 90°</button><button data-preset="window">▣ Окно</button><button data-preset="door">▯ Проём</button><button data-preset="column">▥ Колонна</button><button data-preset="roof">⌂ Крыша</button><button data-preset="arch">∩ Арка</button></div></section>
+        <section class="assembly-panel">
+          <h3>Конструктор сборок</h3>
+          <p class="hint">Собери камин, дверь, окно или мебель из любых отдельных деталей. Сначала создаётся редактируемая сборка, затем её можно запечь и сохранить отдельным модулем.</p>
+          <label for="assemblyName">Название конструкции</label>
+          <input id="assemblyName" value="Каменный модуль" maxlength="72" placeholder="Например: Каменная арка"/>
+          <button id="createAssemblyBtn" class="primary">＋ Создать сборку</button>
+          <label for="assemblyTarget">Активная сборка</label>
+          <select id="assemblyTarget"><option value="">Сначала создай сборку</option></select>
+          <button id="addAssemblyBtn">↳ Добавить выделенную деталь</button>
+          <p class="hint">Выбирай каждый объект в 3D или вкладке «Сцена» и нажимай «Добавить». Его положение и материалы сохранятся.</p>
+          <label class="check"><input type="checkbox" id="mergeAssembly" checked/> Объединить совместимую геометрию</label>
+          <button id="bakeAssemblyBtn" class="accent">▧ Запечь в игровой модуль</button>
+          <button id="saveModuleBtn" class="primary">↥ Сохранить выбранный GLB</button>
+          <p class="hint">Запекание создаёт новую копию с опорой снизу по центру. Исходная сборка остаётся редактируемой. UV и материалы сохраняются; новая карта текстур пока не создаётся.</p>
+        </section>
         <section><h3>Размер выделенной детали</h3><label>Ширина X, м</label><input id="dimX" type="number" min=".01" step=".05" value="2.50"/><label>Высота Y, м</label><input id="dimY" type="number" min=".01" step=".05" value="2.50"/><label>Глубина Z, м</label><input id="dimZ" type="number" min=".01" step=".05" value=".25"/><button id="sizeBtn" class="primary">Применить размеры</button><p class="hint">Масштаб меняется отдельно по осям. Геометрия не срезается.</p></section>
       </div>
       <div class="tab-page" id="tab-decor">
@@ -61,7 +76,7 @@
       <section><h3>Экспорт</h3><div class="two"><select id="format"><option value="glb">GLB (Godot)</option><option value="gltf">GLTF (JSON)</option><option value="obj">OBJ (меш)</option><option value="stl">STL (меш)</option></select><button id="saveBtn" class="primary">Сохранить</button></div><p class="hint">GLB сохраняет материалы и декор. OBJ/STL — геометрию. GLTF экспортируется как JSON с встроенными данными.</p></section>
     </aside>
   </div>
-  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.3</span><button id="mobileScene">☷ Сцена</button></footer>
+  <footer class="footer"><button id="mobileTools">☰ Инструменты</button><span>QDQR · v0.1.4</span><button id="mobileScene">☷ Сцена</button></footer>
   <input id="filePicker" type="file" accept=".glb,.gltf,.obj,.stl" hidden/>
   <input id="imagePicker" type="file" accept="image/*" hidden/>
   <div id="toast" role="status" aria-live="polite"></div>

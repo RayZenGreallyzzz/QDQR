@@ -72,3 +72,12 @@ Capacitor 8 needs **Node.js 22+**, Android SDK and JDK 21 for cloud builds. The 
 - Under **Правка → Копирование детали**, select **Справа/Слева/Вперёд/Назад**, then **Копировать рядом**. Copies are independent editable meshes or whole groups, preserve textures, are positioned beside the world's axis-aligned bounding box, and can be moved with the normal transform gizmo.
 - Imported bundles are groups; to delete one small part rather than copy everything, select its mesh by tapping on the 3D model or choosing it from the scene list.
 - For plane-cut, the original trim tool still trims only the selected mesh (not all meshes). It is an approximate face-centroid cut without cap. Manual face selection is the safer option for a local repair.
+
+## Assembly workflow / Construction bake (v0.1.4)
+
+1. **Модули → Конструктор сборок → Создать сборку**; name it `Камин`, `Арка`, etc.
+2. Create or import pieces, position each one, tap a piece on the scene and **Добавить выделенную деталь**. The original model is moved into the assembly without intentionally changing its world placement. You may add multiple parts (stone blocks, metal bars, trim, logos).
+3. Select the active group in **Активная сборка**, press **Запечь в игровой модуль**. A separate game-ready static module appears beside the editable original. Transformation matrices become vertex coordinates, UVs and existing texture maps stay attached. If vertex attribute layouts are compatible, the parts are merged into a single mesh with multiple material slots. Otherwise meshes remain separate under the one module.
+4. Select baked module and press **Сохранить выбранный GLB**. Export uses a local bottom-center pivot at (0,0,0), independent of its preview position; load it into Godot. Other scene contents do not contaminate the selected export.
+
+**Not yet available:** creating a *new* PBR texture atlas from materials, lightmap/AO baking, automatic UV unwrapping, boolean sealing, automatic low-poly retopology, collision generation. GLB retains existing materials; a model with 15 materials may still have 15 material draw calls even when geometry is merged.

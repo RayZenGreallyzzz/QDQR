@@ -9,6 +9,7 @@ import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {OBJExporter} from 'three/addons/exporters/OBJExporter.js';
 import {STLExporter} from 'three/addons/exporters/STLExporter.js';
 import {bendGeometry, cleanDegenerate, cropGeometry, removeSmallIslands, splitGeometryIslands, removePickedFaces, countTriangles, createConstruction} from './meshOps.js';
+import {bakeStaticAssembly} from './assemblyOps.js';
 
 const $=id=>document.getElementById(id);
 const viewport=$('viewport');
@@ -166,6 +167,7 @@ function refresh(){
   });
   if(idx>250){const p=document.createElement('div');p.className='hint';p.textContent='Показаны первые 250 объектов';$('objectTree').append(p);}
   updateProperties();
+  refreshAssemblyTargets();
 }
 function select(obj){
   if(obj && !obj.isMesh && !obj.isGroup)return;
@@ -188,6 +190,100 @@ function updateProperties(){
     const s=new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3());
     ['dimX','dimY','dimZ'].forEach((name,i)=>$(name).value=Number(s.getComponent(i).toFixed(3)));
   }
+}
+
+function refreshAssemblyTargets(){
+  const input=$('assemblyTarget');
+  const previous=input.value;
+  const candidates=root.children.filter(o=>o.userData?.qdqrAssembly && o.isGroup);
+  input.replaceChildren();
+  for(const assembly of candidates){
+    const option=document.createElement('option');
+    option.value=assembly.uuid;option.textContent=assembly.name;
+    input.append(option);
+  }
+  if(candidates.length){
+    const preferred=candidates.find(o=>o.uuid===previous)||candidates[candidates.length-1];
+    input.value=preferred.uuid;
+  }else{
+    const option=document.createElement('option');option.value='';option.textContent='Сначала создай сборку';input.append(option);
+  }
+  $('addAssemblyBtn').disabled=!candidates.length;
+  $('bakeAssemblyBtn').disabled=!candidates.length;
+  $('saveModuleBtn').disabled=!selected;
+}
+function currentAssembly(){
+  const uuid=$('assemblyTarget').value;
+  return root.children.find(o=>o.uuid===uuid && o.userData?.qdqrAssembly)||null;
+}
+function createAssembly(){
+  if(facePickEnabled)setFacePickMode(false);
+  const name=$('assemblyName').value.trim()||'Новая конструкция';
+  snapshot();
+  const group=new THREE.Group();
+  group.name=name;group.userData.qdqrAssembly=true;
+  root.add(group);
+  select(group);
+  $('assemblyTarget').value=group.uuid;
+  notify('Создана сборка «'+name+'». Выбери деталь, затем нажми «Добавить».');
+}
+function addToAssembly(){
+  const target=currentAssembly(),obj=selected;
+  if(!target)return notify('Сначала создай сборку',true);
+  if(!obj)return notify('Сначала выбери деталь на сцене',true);
+  if(obj===target)return notify('Выбери деталь, а не саму сборку',true);
+  let current=target;
+  while(current){if(current===obj)return notify('Нельзя вложить сборку внутрь собственной детали',true);current=current.parent;}
+  let p=obj.parent;while(p){if(p===target)return notify('Деталь уже в этой сборке');p=p.parent;}
+  if(obj.isSkinnedMesh)return notify('Скелетные модели не подходят для статической сборки',true);
+  snapshot();
+  // Object3D.attach preserves the world position/rotation of the moved object.
+  target.updateWorldMatrix(true,false);
+  target.attach(obj);
+  refresh();
+  notify('«'+(obj.name||'Деталь')+'» добавлена. Её положение сохранено.');
+}
+function bakeAssembly(){
+  const source=currentAssembly();
+  if(!source)return notify('Сначала создай и выбери сборку',true);
+  if(!countTriangles(source).meshes)return notify('В сборке пока нет деталей',true);
+  if(facePickEnabled)setFacePickMode(false);
+  try{
+    const result=bakeStaticAssembly(source,{
+      merge:$('mergeAssembly').checked,
+      pivot:'bottom-center',
+      maxTriangles:lowMemoryMobile?140000:350000
+    });
+    snapshot();
+    result.userData.qdqrBakedModule=true;
+    root.add(result);
+    const bbox=new THREE.Box3().setFromObject(source);
+    const size=bbox.getSize(new THREE.Vector3()),center=bbox.getCenter(new THREE.Vector3());
+    // Position the preview beside the source. The exported selected GLB keeps
+    // its local coordinates/pivot; exportSelected re-centers the module.
+    result.position.set(bbox.max.x+Math.max(size.x,.5)*.6+.3,bbox.min.y,center.z);
+    select(result);
+    notify('Создан игровой модуль: '+result.userData.triangles+' трис, '+countTriangles(result).meshes+
+      ' мешей. Теперь «Сохранить выбранный GLB».');
+  }catch(e){console.error(e);notify('Не удалось запечь: '+e.message,true);}
+}
+async function saveSelectedModule(){
+  if(!selected)return notify('Выбери готовый модуль или сборку на сцене',true);
+  try{
+    // Put mesh coordinates into a new export root without any scene offset.
+    // When a module is created via bakeStaticAssembly, its geometry has a
+    // bottom-center pivot. Preserve that pivot regardless of preview position.
+    let item=selected;
+    if(item.userData?.qdqrBakedModule){
+      const cloned=cloneDeep(item);
+      cloned.position.set(0,0,0);cloned.quaternion.identity();cloned.scale.set(1,1,1);
+      await save('glb',cloned,item.name);
+    }else{
+      const baked=bakeStaticAssembly(item,{merge:$('mergeAssembly').checked,pivot:'bottom-center',
+        maxTriangles:lowMemoryMobile?140000:350000});
+      await save('glb',baked,item.name||'Модуль');
+    }
+  }catch(e){console.error(e);notify('Экспорт модуля: '+e.message,true);}
 }
 function activeMaterial(){
   return new THREE.MeshStandardMaterial({color:$('decorColor').value,metalness:Number($('metal').value),roughness:Number($('rough').value),side:THREE.DoubleSide});
@@ -541,24 +637,24 @@ async function downloadBlob(blob,name){
   link.href=url;link.download=name;document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),20000);
 }
-async function save(format){
-  if(!root.children.length)return notify('Сцена пуста',true);
+async function save(format,subject=root,filename=fileBase){
+  if(!subject || (!subject.isMesh && !subject.children?.length))return notify('Нечего сохранять',true);
   if(busy)return;busy=true;setStatus('Экспорт '+format.toUpperCase()+'...');
   try{
     let content,mime,extension=format;
     if(format==='glb'||format==='gltf'){
       const exporter=new GLTFExporter();
-      const serialized=await exporter.parseAsync(root,{
-        binary:format==='glb',onlyVisible:false,trs:false,maxTextureSize:2048,
+      const serialized=await exporter.parseAsync(subject,{
+        binary:format==='glb',onlyVisible:true,trs:false,maxTextureSize:2048,
         includeCustomExtensions:false
       });
       content=format==='glb'?new Blob([serialized],{type:'model/gltf-binary'}):new Blob([JSON.stringify(serialized)],{type:'model/gltf+json'});
     } else if(format==='obj') {
-      content=new Blob([new OBJExporter().parse(root)],{type:'text/plain'});
+      content=new Blob([new OBJExporter().parse(subject)],{type:'text/plain'});
     } else if(format==='stl'){
-      content=new Blob([new STLExporter().parse(root,{binary:false})],{type:'model/stl'});
+      content=new Blob([new STLExporter().parse(subject,{binary:false})],{type:'model/stl'});
     } else throw new Error('Неизвестный формат');
-    await downloadBlob(content,fileBase+'.'+extension);notify('Файл подготовлен: '+fileBase+'.'+extension);
+    await downloadBlob(content,safeName(filename)+'.'+extension);notify('Файл подготовлен: '+safeName(filename)+'.'+extension);
   }catch(e){console.error(e);notify('Ошибка экспорта: '+e.message,true);}
   finally{busy=false;setStatus('Готово · модели можно редактировать');}
 }
@@ -586,6 +682,10 @@ function initEvents(){
   $('centerPivot').onclick=centerPivot;$('groundBtn').onclick=ground;
   $('deleteBtn').onclick=deleteSelection;$('isolateBtn').onclick=isolateSelection;
   $('bakeBtn').onclick=bakeAll;
+  $('createAssemblyBtn').onclick=createAssembly;
+  $('addAssemblyBtn').onclick=addToAssembly;
+  $('bakeAssemblyBtn').onclick=bakeAssembly;
+  $('saveModuleBtn').onclick=saveSelectedModule;
   $('splitBtn').onclick=splitSelected;
   $('duplicateBtn').onclick=duplicateSelected;
   $('facePickBtn').onclick=()=>setFacePickMode(!facePickEnabled);
