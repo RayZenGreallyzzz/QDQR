@@ -14,7 +14,7 @@ import {projectTextureToWall,attachDecorToWall} from './surfaceOps.js';
 import {captureFrameSilhouette,buildGlassPieces} from './glassOps.js';
 import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOpeningTrim} from './openingOps.js';
 import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility,fitInsertToOpening} from './houseOps.js';
-import {dockNewModule,snapNearbyModule,isWallModule} from './wallSnap.js';
+import {dockNewModule,snapNearbyModule,isWallModule,locateWallModule,placeAdjacentTo} from './wallSnap.js';
 
 const $=id=>document.getElementById(id);
 const viewport=$('viewport');
@@ -50,6 +50,12 @@ const grid=new THREE.GridHelper(80,160,0x52647a,0x344254);grid.position.y=-.004;
 const root=new THREE.Group();root.name='Редактируемые модели';scene.add(root);
 const transform=new TransformControls(camera,renderer.domElement);
 scene.add(transform.getHelper());
+// The visible gizmo is NOT attached to the raw model origin. Curved wall
+// origins are at their connection sockets and can be metres from the mesh.
+const gizmoPivot=new THREE.Object3D();
+gizmoPivot.name='Редактор · центр выделения';
+scene.add(gizmoPivot);
+let dragInitialPivot=null,dragInitialWorld=null,dragParentInverse=null;
 let selected=null,selectionBox=new THREE.BoxHelper(new THREE.Object3D(),0xe5b965);
 selectionBox.visible=false;scene.add(selectionBox);
 const faceOverlay=new THREE.Mesh(new THREE.BufferGeometry(),new THREE.MeshBasicMaterial({
@@ -194,13 +200,24 @@ function refresh(){
   refreshAssemblyTargets();
   refreshHouseTargets();
 }
+function syncSelectionGizmo({attach=true}={}){
+  if(!selected || !selected.parent)return;
+  selected.updateWorldMatrix(true,true);
+  const box=new THREE.Box3().setFromObject(selected);
+  if(box.isEmpty())selected.getWorldPosition(gizmoPivot.position);
+  else box.getCenter(gizmoPivot.position);
+  selected.getWorldQuaternion(gizmoPivot.quaternion);
+  gizmoPivot.scale.set(1,1,1);
+  gizmoPivot.updateMatrixWorld(true);
+  if(attach&&!facePickEnabled&&!openingActive)transform.attach(gizmoPivot);
+}
 function select(obj){
   if(obj && !obj.isMesh && !obj.isGroup)return;
   if(selected!==obj){markedFaces.clear();updateFaceOverlay();}
   selected=obj;transform.detach();
   if(obj){
-    if(!facePickEnabled)transform.attach(obj);
-    selectionBox.setFromObject(obj);selectionBox.visible=!facePickEnabled;
+    syncSelectionGizmo();
+    selectionBox.setFromObject(obj);selectionBox.visible=!facePickEnabled&&!openingActive;
   } else selectionBox.visible=false;
   updateFaceOverlay();refresh();
 }
@@ -414,10 +431,15 @@ function placePresetAction(){
   const floor=currentFloor();
   if(!floor)return notify('Сначала выбери этаж',true);
   try{
-    const preferred=selected && isWallModule(selected) && selected.parent===floor?selected:null;
+    const preferred=locateWallModule(selected);
+    const reference=selected;
     snapshot();
     const module=addPresetToFloor(floor,$('housePreset').value,activeMaterial(),.25,
-      {preferred,autoDock:$('autoJoinWalls').checked});
+      {preferred:preferred?.parent===floor?preferred:null,autoDock:$('autoJoinWalls').checked});
+    if(!module.userData.qdqrLastJoin&&reference&&reference!==floor
+      &&reference!==currentHouse()&&reference!==module
+      &&reference.parent && !reference.getObjectById?.(module.id))
+      placeAdjacentTo(module,preferred||reference);
     select(module);
     notify(module.userData.qdqrLastJoin?
       'Модуль автоматически состыкован по центральной оси стены.':
@@ -532,7 +554,7 @@ function stopOpening({silent=false}={}){
   $('openingCutBtn').disabled=true;$('openingStartBtn').disabled=false;$('openingCancelBtn').disabled=true;
   $('openingStatus').textContent='Выбери стену, затем нажми «Разметить проём».';
   orbit.enabled=true;
-  if(!facePickEnabled&&selected)transform.attach(selected);
+  if(!facePickEnabled&&selected)syncSelectionGizmo();
   if(!silent)notify('Разметка отменена. Камера снова свободна.');
 }
 function startOpening(){
@@ -754,13 +776,28 @@ function activeMaterial(){
   return new THREE.MeshStandardMaterial({color:$('decorColor').value,metalness:Number($('metal').value),roughness:Number($('rough').value),side:THREE.DoubleSide});
 }
 function addObject(m){
-  const preferred=selected && isWallModule(selected)?selected:null;
-  snapshot();root.add(m);
-  let join=null;
+  const previous=selected;
+  const preferred=locateWallModule(previous);
+  snapshot();
+  root.add(m);
+  let join=null,placed=false;
   if(isWallModule(m) && $('autoJoinWalls').checked)
     join=dockNewModule(m,root,{preferred});
+  if(!join){
+    // Unlike the old fallback, always place near the current workpiece,
+    // not at the origin where the very first wall was created.
+    placed=placeAdjacentTo(m,preferred||previous);
+    if(!placed && root.children.length>1)
+      placed=placeAdjacentTo(m,root.children[root.children.length-2]);
+    if(!placed){
+      const local=root.worldToLocal(orbit.target.clone());
+      const bottom=new THREE.Box3().setFromObject(m).min.y;
+      m.position.set(local.x,local.y-bottom,local.z);
+    }
+  }
   select(m);if(root.children.length===1)fitCamera();
-  notify(join?'Модуль состыкован по центральной оси.':'Добавлено. Объект можно перемещать и сохранять.');
+  notify(join?'Пристыковано к свободному концу стены.':
+    'Деталь добавлена рядом с текущим местом строительства.');
 }
 function addPart(type){
   const mt=activeMaterial();
@@ -862,7 +899,7 @@ function setFacePickMode(enabled){
   $('facePickBtn').classList.toggle('active',facePickEnabled);
   $('facePickBtn').setAttribute('aria-pressed',String(facePickEnabled));
   $('facePickBtn').textContent=facePickEnabled?'✓ Закончить выделение':'◎ Выбрать грани пальцем';
-  if(!facePickEnabled && selected)transform.attach(selected);
+  if(!facePickEnabled && selected)syncSelectionGizmo();
   selectionBox.visible=!!selected&&!facePickEnabled;
   updateFaceOverlay();
   if(facePickEnabled){
@@ -976,7 +1013,7 @@ function applyNumericTransform(){
   if(vals.some(v=>!Number.isFinite(v)))return;
   snapshot();selected.position.set(...vals.slice(0,3));
   selected.scale.set(...vals.slice(3).map(v=>Math.abs(v)<.001?.001:v));
-  selectionBox.setFromObject(selected);refresh();
+  selectionBox.setFromObject(selected);syncSelectionGizmo();refresh();
 }
 function applyDimensions(){
   if(!eligible())return;
@@ -985,7 +1022,7 @@ function applyDimensions(){
   const sizes=new THREE.Box3().setFromObject(selected).getSize(new THREE.Vector3());
   snapshot();
   selected.scale.set(selected.scale.x*(dim[0]/Math.max(.0001,sizes.x)),selected.scale.y*(dim[1]/Math.max(.0001,sizes.y)),selected.scale.z*(dim[2]/Math.max(.0001,sizes.z)));
-  selectionBox.setFromObject(selected);refresh();notify('Размеры изменены по каждой оси');
+  selectionBox.setFromObject(selected);syncSelectionGizmo();refresh();notify('Размеры изменены по каждой оси');
 }
 function centerPivot(){
   if(!eligible())return;
@@ -999,7 +1036,7 @@ function centerPivot(){
 function ground(){
   if(!selected)return;
   const bounds=new THREE.Box3().setFromObject(selected);
-  snapshot();selected.position.y-=bounds.min.y;refresh();notify('Объект установлен на уровень Y = 0');
+  snapshot();selected.position.y-=bounds.min.y;syncSelectionGizmo();refresh();notify('Объект установлен на уровень Y = 0');
 }
 function isolateSelection(){
   if(!selected)return notify('Выделите объект');
@@ -1320,17 +1357,35 @@ function initEvents(){
   $('mobileScene').onclick=()=>{document.querySelector('.sidebar.right').classList.toggle('mobile-open');document.querySelector('.sidebar.left').classList.remove('mobile-open');};
   transform.addEventListener('dragging-changed',event=>{
     orbit.enabled=!event.value;
-    if(event.value){snapshot();dragged=true;}
-    else{
-      if($('autoJoinWalls').checked&&selected&&isWallModule(selected)){
-        const snap=snapNearbyModule(selected,selected.parent||root,{threshold:.55});
-        if(snap)notify('Автостыковка: центральные линии совпали.');
+    if(event.value){
+      if(!selected)return;
+      snapshot();dragged=true;
+      selected.updateWorldMatrix(true,false);
+      gizmoPivot.updateMatrixWorld(true);
+      dragInitialPivot=gizmoPivot.matrixWorld.clone();
+      dragInitialWorld=selected.matrixWorld.clone();
+      dragParentInverse=selected.parent.matrixWorld.clone().invert();
+    }else{
+      if($('autoJoinWalls').checked && locateWallModule(selected)===selected){
+        const snapped=snapNearbyModule(selected,root,{threshold:.65});
+        if(snapped)notify('Магнит: стены пристыкованы по центральной оси.');
       }
+      dragInitialPivot=dragInitialWorld=dragParentInverse=null;
+      if(selected)syncSelectionGizmo();
       refresh();selectionBox.visible=!!selected;
       if(selected)selectionBox.setFromObject(selected);
     }
   });
-  transform.addEventListener('objectChange',()=>{if(selected){selectionBox.setFromObject(selected);updateProperties();}});
+  transform.addEventListener('objectChange',()=>{
+    if(!selected || !dragInitialPivot || !dragInitialWorld || !dragParentInverse)return;
+    gizmoPivot.updateMatrixWorld(true);
+    const delta=gizmoPivot.matrixWorld.clone().multiply(dragInitialPivot.clone().invert());
+    const local=dragParentInverse.clone().multiply(delta).multiply(dragInitialWorld);
+    local.decompose(selected.position,selected.quaternion,selected.scale);
+    selected.updateMatrixWorld(true);
+    selectionBox.setFromObject(selected);
+    updateProperties();
+  });
   let down=null;
   // While marking a doorway, a single finger drags the cutter instead of
   // rotating the scene; multi-touch navigation returns after Cancel/Commit.
@@ -1375,7 +1430,7 @@ function initEvents(){
     raycaster.setFromCamera(pointer,camera);
     const hits=raycaster.intersectObjects(root.children,true).filter(h=>h.object.isMesh&&h.object.visible);
     if(facePickEnabled){if(hits.length)hitPick(hits[0]);else notify('Коснись поверхности детали');}
-    else if(hits.length)select(hits[0].object);
+    else if(hits.length)select(locateWallModule(hits[0].object)||hits[0].object);
   });
   viewport.addEventListener('dragover',e=>e.preventDefault());
   viewport.addEventListener('drop',e=>{e.preventDefault();importFile(e.dataTransfer.files[0]);});

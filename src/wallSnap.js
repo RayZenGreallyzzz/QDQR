@@ -81,6 +81,37 @@ export function dockNewModule(module,floor,{preferred=null}={}){
 }
 // Dragged modules only snap when close to an unoccupied endpoint. No jumps
 // across the scene, and no snapping non-building decor, imports or furniture.
+
+export function locateWallModule(object){
+  for(let p=object;p;p=p.parent){
+    if(p.userData?.qdqrWallSockets && p.isGroup)return p;
+  }
+  return null;
+}
+
+// Non-wall modules and walls without a compatible free socket still spawn near
+// the current workpiece. In contrast with the old (0,0,0) fallback, this works
+// even when the entire building was moved away from the world origin.
+export function placeAdjacentTo(module,reference,{gap=.08}={}){
+  if(!module?.parent || !reference || module===reference)return false;
+  module.parent.updateWorldMatrix(true,true);
+  reference.updateWorldMatrix(true,true);
+  const a=new THREE.Box3().setFromObject(reference);
+  const b=new THREE.Box3().setFromObject(module);
+  if(a.isEmpty()||b.isEmpty())return false;
+  const moveWorld=new THREE.Vector3(
+    a.max.x-b.min.x+gap,
+    a.min.y-b.min.y,
+    a.getCenter(new THREE.Vector3()).z-b.getCenter(new THREE.Vector3()).z
+  );
+  const parent=module.parent;
+  const from=parent.worldToLocal(new THREE.Vector3());
+  const to=parent.worldToLocal(moveWorld.clone());
+  module.position.add(to.sub(from));
+  module.updateWorldMatrix(true,true);
+  return true;
+}
+
 export function snapNearbyModule(module,container,{threshold=.48}={}){
   if(!isWallModule(module))return null;
   const candidates=allWallModules(container).filter(x=>x!==module);

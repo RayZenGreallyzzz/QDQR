@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {createConstruction} from '../src/meshOps.js';
 import {createHouse,getFloors,addPresetToFloor,fitInsertToOpening} from '../src/houseOps.js';
-import {moduleSockets,dockNewModule,snapNearbyModule,socketsConnectionError} from '../src/wallSnap.js';
+import {moduleSockets,dockNewModule,snapNearbyModule,socketsConnectionError,locateWallModule,placeAdjacentTo} from '../src/wallSnap.js';
 
 const material=()=>new THREE.MeshStandardMaterial({color:0xc5b8aa});
 const near=(a,b,tol=1e-5)=>assert.ok(Math.abs(a-b)<tol,String(a)+' != '+String(b));
@@ -109,4 +109,48 @@ test('imported door / window frames can be fitted inside nearest ready wall open
  assert.ok(imported.userData.qdqrInstalledInOpening);
  const box=bounds(imported),actual=bounds(window);
  assert.ok(actual.containsBox(box)||Math.abs(box.max.z-actual.max.z)<.01);
+});
+
+
+test('choosing a child mesh resolves its wall module, not a detached polygon',()=>{
+ const scene=new THREE.Group(),wall=createConstruction('corner',material());
+ scene.add(wall);
+ const child=wall.children[0];
+ assert.equal(locateWallModule(child),wall);
+ assert.equal(locateWallModule(wall),wall);
+ assert.equal(locateWallModule(new THREE.Mesh(new THREE.BoxGeometry(),material())),null);
+});
+test('adding another module near a previously moved wall never returns to origin',()=>{
+ const root=new THREE.Group();
+ const first=createConstruction('wall',material());
+ root.add(first);first.position.set(42,0,-31);
+ const second=createConstruction('window',material());
+ root.add(second);
+ const join=dockNewModule(second,root,{preferred:first});
+ assert.ok(join);
+ assert.ok(second.position.x>39);
+ assert.ok(second.position.z< -28);
+ near(socketsConnectionError(first,second).distance,0,.0001);
+});
+test('generic module starts near current building piece instead of world origin',()=>{
+ const root=new THREE.Group();
+ const reference=createConstruction('wall',material());
+ root.add(reference);reference.position.set(53,0,-47);
+ const furniture=createConstruction('column',material());
+ root.add(furniture);
+ const placed=placeAdjacentTo(furniture,reference);
+ assert.equal(placed,true);
+ const a=bounds(reference),b=bounds(furniture);
+ near(b.min.x,a.max.x+.08,.0001);
+ near(b.min.y,a.min.y,.0001);
+ assert.ok(Math.abs(b.getCenter(new THREE.Vector3()).z+47)<.1);
+});
+test('adjacent placement respects a rotated parent group in world coordinates',()=>{
+ const world=new THREE.Group(),parent=new THREE.Group();
+ world.add(parent);parent.position.set(26,0,11);parent.rotation.y=.6;
+ const anchor=createConstruction('wall',material());parent.add(anchor);
+ const next=createConstruction('column',material());parent.add(next);
+ assert.equal(placeAdjacentTo(next,anchor),true);
+ const a=bounds(anchor),b=bounds(next);
+ near(b.min.x,a.max.x+.08,.0001);
 });
