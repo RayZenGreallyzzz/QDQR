@@ -177,8 +177,12 @@ export function createStainedTexture(seed=1,palette='mixed',fragments='small'){
     green:['#205f48','#47965f','#80b073','#9b953d','#287b8b'],
     amber:['#8d512a','#d69935','#d9b660','#a83932','#f1d38c']
   };
-  const colors=(palettes[palette]||palettes.mixed).map(c=>new THREE.Color(c));
-  const rgba=colors.map(c=>[Math.round(c.r*255),Math.round(c.g*255),Math.round(c.b*255)]);
+  // Canvas ImageData stores sRGB bytes. Do not use THREE.Color's linear
+  // channels as bytes, or stained glass looks much darker than requested.
+  const rgba=(palettes[palette]||palettes.mixed).map(hex=>{
+    const n=Number.parseInt(hex.slice(1),16);
+    return [(n>>16)&255,(n>>8)&255,n&255];
+  });
   const image=context.createImageData(192,192);
   for(let y=0;y<192;y++)for(let x=0;x<192;x++){
     let best=Infinity,second=Infinity,choice=0;
