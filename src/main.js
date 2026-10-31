@@ -17,7 +17,7 @@ import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOp
 import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility,fitInsertToOpening} from './houseOps.js';
 import {dockNewModule,snapNearbyModule,isWallModule,locateWallModule,placeAdjacentTo} from './wallSnap.js';
 import {selectionGizmoPose,applyCenteredGizmo} from './editorGizmo.js';
-import {measureScene,validateSceneBounds,mobileSceneBudget,reduceImportedTextureFootprint,ANDROID_LIMITS} from './renderSafety.js';
+import {createRuntimeProfile,measureScene,validateSceneBounds,mobileSceneBudget,inspectGlb,optimizeGlbTextures,reduceImportedTextureFootprint,disposeDetachedResources} from './renderSafety.js';
 
 const $=id=>document.getElementById(id);
 const NativeFileSave=registerPlugin('NativeFileSave');
@@ -25,12 +25,28 @@ let lastExportCache=null;
 const viewport=$('viewport');
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x17202c);
 const camera=new THREE.PerspectiveCamera(48,1,.03,1500);camera.position.set(6,4.4,7);
-const lowMemoryMobile=window.matchMedia('(pointer: coarse)').matches;
-const renderer=new THREE.WebGLRenderer({antialias:!lowMemoryMobile,preserveDrawingBuffer:true,powerPreference:lowMemoryMobile?'low-power':'high-performance'});
+const coarsePointer=window.matchMedia('(pointer: coarse)').matches;
+const isAndroid=window.Capacitor?.getPlatform?.()==='android'||/Android/i.test(navigator.userAgent||'');
+const deviceMemoryGiB=Number.isFinite(Number(navigator.deviceMemory))?Number(navigator.deviceMemory):null;
+const jsHeapLimitBytes=Number.isFinite(Number(performance?.memory?.jsHeapSizeLimit))?Number(performance.memory.jsHeapSizeLimit):null;
+const initialDeviceProfile=createRuntimeProfile({isAndroid,coarsePointer,deviceMemoryGiB,jsHeapLimitBytes});
+const lowMemoryMobile=initialDeviceProfile.constrained;
+// Do not permanently preserve the back buffer on mobile: it consumes GPU memory
+// every frame. Screenshots use a temporary render target instead.
+const renderer=new THREE.WebGLRenderer({
+  antialias:!initialDeviceProfile.mobile,
+  preserveDrawingBuffer:false,
+  powerPreference:isAndroid?'low-power':'high-performance'
+});
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.35;
-renderer.setPixelRatio(Math.min(devicePixelRatio||1,lowMemoryMobile?1.1:1.7));
+const deviceProfile=createRuntimeProfile({
+  isAndroid,coarsePointer,deviceMemoryGiB,jsHeapLimitBytes,
+  maxTextureSize:renderer.capabilities.maxTextureSize
+});
+renderer.setPixelRatio(Math.min(devicePixelRatio||1,
+  deviceProfile.constrained?1.1:deviceProfile.mobile?1.4:1.7));
 viewport.appendChild(renderer.domElement);
 // If Android drops the WebGL context, HTML controls still respond while the
 // 3D canvas becomes completely blank (even the grid disappears). Make this
@@ -144,6 +160,15 @@ function cloneDeep(obj) {
   });
   return c;
 }
+function disposeRemoved(objects){
+  for(const object of objects||[])disposeDetachedResources(object,root);
+}
+function clearRootResources(){
+  const removed=[...root.children];
+  root.clear();
+  disposeRemoved(removed);
+  return removed.length;
+}
 function snapshot({lightweight=false}={}){
   // Loading an imported GLB does not mutate existing geometry; no need to
   // duplicate every vertex buffer into history (particularly on 4GB tablets).
@@ -156,8 +181,11 @@ function restore(snap){
   clearGlassPreview({hidePanel:true});
   if(openingActive)stopOpening({silent:true});
   setFacePickMode(false);markedFaces.clear();updateFaceOverlay();
-  transform.detach();selected=null;root.clear();
+  transform.detach();selected=null;
+  const removed=[...root.children];root.clear();
   const c=cloneDeep(snap);while(c.children.length)root.add(c.children[0]);
+  // Old WebGL buffers/textures are explicitly released after replacement.
+  disposeRemoved(removed);
   isolate=false;selectionBox.visible=false;
   refresh();
 }
@@ -216,7 +244,8 @@ function deleteBatch(batch=pendingBatch()){
  if(selected && (selected===batch||batch.getObjectById(selected.id))){
    transform.detach();selected=null;selectionBox.visible=false;
  }
- batch.removeFromParent();if(!root.children.length)fileBase='phoenix_module';
+ batch.removeFromParent();disposeDetachedResources(batch,root);
+ if(!root.children.length)fileBase='phoenix_module';
  fitCamera();refresh();notify('Удалён набор «'+label+'». Можно отменить.');
 }
 function refresh(){
@@ -875,11 +904,11 @@ function newScene(){
   if(openingActive)stopOpening({silent:true});
   if(root.children.length && !window.confirm('Очистить всю сцену? Сначала сохраните нужные модели.'))return;
   setFacePickMode(false);clearMarkedFaces();
-  snapshot();root.clear();select(null);fileBase='phoenix_module';
+  snapshot();clearRootResources();select(null);fileBase='phoenix_module';
   fitCamera();setStatus('Новая пустая сцена');notify('Сцена очищена');
 }
 function sample(){
-  snapshot();root.clear();const wall=createConstruction('wall',mat('#8a887e'));root.add(wall);
+  snapshot();clearRootResources();const wall=createConstruction('wall',mat('#8a887e'));root.add(wall);
   const column=createConstruction('column',mat('#b69f7b'));column.position.set(1.35,0,.24);root.add(column);
   const p=new THREE.Mesh(new THREE.PlaneGeometry(.8,.8),mat('#c0a06b'));p.name='Декор · щит';p.position.set(-.65,1.6,.14);root.add(p);
   fileBase='phoenix_wall_test';select(wall.children[0]);fitCamera();
@@ -1105,7 +1134,9 @@ function deleteSelection(){
   if(!selected)return;
   if(selected.isGroup)return deleteBatch(selected);
   setFacePickMode(false);clearMarkedFaces();
-  snapshot();transform.detach();selected.removeFromParent();selected=null;
+  snapshot();transform.detach();
+  const removed=selected;removed.removeFromParent();selected=null;
+  disposeDetachedResources(removed,root);
   selectionBox.visible=false;refresh();notify('Фрагмент удалён');
 }
 function bakeAll(){
@@ -1120,7 +1151,8 @@ function bakeAll(){
     copy.geometry.applyMatrix4(o.matrixWorld);copy.name=o.name;
     copy.visible=o.visible;meshes.push(copy);
   });
-  root.clear();meshes.forEach(m=>root.add(m));select(meshes[0]||null);
+  const removed=[...root.children];root.clear();meshes.forEach(m=>root.add(m));
+  disposeRemoved(removed);select(meshes[0]||null);
   notify('Матрицы преобразованы в вершины. Материалы сохранены.');
 }
 
@@ -1227,46 +1259,84 @@ async function importFile(file){
     return;
   }
   setStatus('Загрузка '+file.name+'...');busy=true;
+  let obj=null;
   try{
-    const ext=(file.name.split('.').pop()||'').toLowerCase(),b=await file.arrayBuffer();
-    let obj;
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    let binary=await file.arrayBuffer(),texturePrep=null;
+    const before=measureScene(root);
+
+    // GLB can be inspected without constructing Three.js meshes or decoding images.
+    // This catches absurd input early and lets us shrink embedded maps one-by-one
+    // before GLTFLoader would decode all 4K/8K textures concurrently.
+    if(ext==='glb'){
+      setStatus('Проверка GLB · '+file.name+'...');
+      const preflight=inspectGlb(binary,{maxTextureSide:deviceProfile.textureSide});
+      const planned=mobileSceneBudget(before,preflight,deviceProfile);
+      if(planned.hardLimitExceeded)
+        throw new Error('Модель требует около '+planned.approximateGpuMiB.toFixed(0)+
+          ' МБ 3D-ресурсов при доступном бюджете '+planned.budgetMiB.toFixed(0)+' МБ.');
+      if(planned.softLimitExceeded)
+        notify('Большая сцена: оценка 3D-памяти '+planned.approximateGpuMiB.toFixed(0)+' МБ.');
+
+      if(deviceProfile.mobile&&preflight.oversizedImages){
+        setStatus('Оптимизация встроенных текстур · 0/'+preflight.oversizedImages);
+        texturePrep=await optimizeGlbTextures(binary,{
+          maxSide:deviceProfile.textureSide,
+          onProgress:({index,total})=>setStatus('Оптимизация встроенных текстур · '+index+'/'+total)
+        });
+        binary=texturePrep.buffer;
+      }
+    }
+
     if(ext==='glb'||ext==='gltf'){
       const loader=new GLTFLoader();
       // External .bin or textures in .gltf are not resolved by this single-file picker.
-      const data=ext==='glb'?b:new TextDecoder().decode(b);
+      const data=ext==='glb'?binary:new TextDecoder().decode(binary);
       const gltf=await new Promise((res,rej)=>loader.parse(data,'',res,rej));
-      obj=gltf.scene; 
+      obj=gltf.scene;
     } else if(ext==='obj'){
-      obj=new OBJLoader().parse(new TextDecoder().decode(b));
+      obj=new OBJLoader().parse(new TextDecoder().decode(binary));
     } else if(ext==='stl'){
-      const geom=new STLLoader().parse(b);
+      const geom=new STLLoader().parse(binary);
       geom.computeVertexNormals();obj=new THREE.Mesh(geom,mat('#adb5bc'));
     } else throw new Error('Поддерживаются GLB, GLTF, OBJ и STL');
+
     const stats=countTriangles(obj);
-    if(lowMemoryMobile && stats.triangles>450000)throw new Error('Модель содержит более 450 тысяч треугольников. Для 4 ГБ ОЗУ сперва разделите её на части.');
     if(!stats.meshes)throw new Error('Файл не содержит 3D-мешей');
     validateSceneBounds(obj);
-    if(lowMemoryMobile)reduceImportedTextureFootprint(obj,{maxSide:ANDROID_LIMITS.textureSide});
-    const budget=mobileSceneBudget(measureScene(root),measureScene(obj));
-    if(lowMemoryMobile && budget.hardLimitExceeded)
-      throw new Error('В сцене будет '+budget.total.toLocaleString('ru-RU')+
-        ' треугольников. На планшете такая сцена может отключить 3D. Упрости один из объектов.');
-    if(lowMemoryMobile && budget.softLimitExceeded)
-      notify('Тяжёлая сцена ('+budget.total.toLocaleString('ru-RU')+
-        ' трис). Лучше сохранить GLB перед дальнейшим импортом.');
-    // Imports only add a new independent object: history may share unchanged
-    // vertex buffers until edited. Undo/Redo still snapshots edits normally.
-    snapshot({lightweight:lowMemoryMobile&&measureScene(root).triangles>65000});
+
+    // Fallback for external/unsupported image paths. Normal GLB maps have already
+    // been resized before GLTFLoader, so this does not create a second large peak.
+    if(deviceProfile.mobile)
+      reduceImportedTextureFootprint(obj,{maxSide:deviceProfile.textureSide});
+
+    const incoming=measureScene(obj);
+    const budget=mobileSceneBudget(before,incoming,deviceProfile);
+    if(budget.hardLimitExceeded){
+      disposeDetachedResources(obj,null);obj=null;
+      throw new Error('После декодирования модель требует около '+
+        budget.approximateGpuMiB.toFixed(0)+' МБ 3D-ресурсов при бюджете '+
+        budget.budgetMiB.toFixed(0)+' МБ.');
+    }
+    if(budget.softLimitExceeded)
+      notify('Большая сцена: '+stats.triangles.toLocaleString('ru-RU')+
+        ' трис · около '+budget.approximateGpuMiB.toFixed(0)+' МБ 3D-памяти.');
+
+    // No per-file polygon hard stop: a dense mesh with small buffers/textures can load.
+    snapshot({lightweight:deviceProfile.constrained&&before.gpuBytes>64*1024*1024});
     setFacePickMode(false);clearMarkedFaces();
     const bundle=new THREE.Group();bundle.name=file.name;bundle.userData.importBatch=true;
     bundle.add(obj);root.add(bundle);fileBase=safeName(file.name.replace(/\.[^.]+$/,''));
-    const mesh=(()=>{let v=null;obj.traverse(o=>{if(!v&&o.isMesh)v=o;});return v;})();
     select(bundle);fitCamera();
     setStatus('Загружено · '+file.name);
-    notify(file.name+': '+stats.meshes+' частей, '+stats.triangles.toLocaleString('ru-RU')+' треугольников');
+    const textureNote=texturePrep?.resized?' · уменьшено текстур: '+texturePrep.resized:'';
+    notify(file.name+': '+stats.meshes+' частей, '+
+      stats.triangles.toLocaleString('ru-RU')+' треугольников'+textureNote);
     lastFiles.push(file.name);
-  }catch(e){console.error(e);notify('Не удалось открыть: '+e.message,true);setStatus('Ошибка импорта');}
-  finally{busy=false;}
+  }catch(e){
+    if(obj&&!obj.parent)disposeDetachedResources(obj,null);
+    console.error(e);notify('Не удалось открыть: '+e.message,true);setStatus('Ошибка импорта');
+  }finally{busy=false;}
 }
 function arrayBufferToBase64(buf){
   const bytes=new Uint8Array(buf);let binary='';
@@ -1333,10 +1403,26 @@ async function save(format,subject=root,filename=fileBase,includeHidden=false){
   finally{busy=false;setStatus('Готово · модели можно редактировать');}
 }
 function screenshot(){
+  let target=null;
   try{
-    renderer.render(scene,camera);
-    renderer.domElement.toBlob(blob=>{if(blob)downloadBlob(blob,fileBase+'_preview.png');},'image/png');
-  }catch(e){notify('Снимок не создан',true);}
+    const size=renderer.getDrawingBufferSize(new THREE.Vector2());
+    const width=Math.max(1,Math.floor(size.x)),height=Math.max(1,Math.floor(size.y));
+    target=new THREE.WebGLRenderTarget(width,height,{depthBuffer:true,stencilBuffer:false});
+    target.texture.colorSpace=THREE.SRGBColorSpace;
+    const previous=renderer.getRenderTarget();
+    renderer.setRenderTarget(target);renderer.render(scene,camera);
+    const pixels=new Uint8Array(width*height*4);
+    renderer.readRenderTargetPixels(target,0,0,width,height,pixels);
+    renderer.setRenderTarget(previous);
+    const flipped=new Uint8ClampedArray(pixels.length),row=width*4;
+    for(let y=0;y<height;y++)flipped.set(pixels.subarray(y*row,(y+1)*row),(height-1-y)*row);
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+    const ctx=canvas.getContext('2d');
+    if(!ctx)throw new Error('Нет 2D canvas');
+    ctx.putImageData(new ImageData(flipped,width,height),0,0);
+    canvas.toBlob(blob=>{if(blob)downloadBlob(blob,fileBase+'_preview.png');},'image/png');
+  }catch(e){console.error(e);notify('Снимок не создан',true);}
+  finally{target?.dispose();}
 }
 function initEvents(){
   $('openBtn').onclick=()=>$('filePicker').click();
