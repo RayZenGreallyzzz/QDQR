@@ -1,14 +1,14 @@
 name: Android APK — Phoenix Mesh Workshop
 on:
   push:
-    branches: [main]
+    branches: [main, fix/android-import-memory-v0.1.13]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: qdqr-android-${{ github.ref }}
+  group: qdqr-android-test-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
