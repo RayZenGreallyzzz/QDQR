@@ -150,6 +150,8 @@ test('GLB texture optimizer rewrites image bufferView before loader sees it',asy
     resizeImage:async(_bytes,{targetWidth,targetHeight})=>fakePng(targetWidth,targetHeight)
   });
   assert.equal(result.resized,1);
+  assert.equal(result.inPlace,true);
+  assert.strictEqual(result.buffer,glb);
   const info=inspectGlb(result.buffer,{maxTextureSide:1024});
   assert.equal(info.oversizedImages,0);
   assert.equal(info.images[0].width,1024);
