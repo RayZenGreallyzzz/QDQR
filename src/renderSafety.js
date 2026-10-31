@@ -196,7 +196,7 @@ function parseGlb(buffer){
     const length=readU32LE(bytes,offset),type=readU32LE(bytes,offset+4);
     const start=offset+8,end=start+length;
     if(end>declared)throw new Error('Повреждён chunk GLB');
-    chunks.push({type,bytes:bytes.subarray(start,end)});
+    chunks.push({type,bytes:bytes.subarray(start,end),headerOffset:offset,dataOffset:start});
     offset=end;
   }
   const jsonChunk=chunks.find(c=>c.type===GLB_JSON);
@@ -364,10 +364,12 @@ async function resizeEncodedImage(bytes,{mimeType,width,height,targetWidth,targe
       try{
         bitmap=await createImageBitmap(blob,{
           resizeWidth:targetWidth,resizeHeight:targetHeight,resizeQuality:'high',
-          imageOrientation:'none',premultiplyAlpha:'none'
+          imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'
         });
       }catch{
-        bitmap=await createImageBitmap(blob,{imageOrientation:'none',premultiplyAlpha:'none'});
+        bitmap=await createImageBitmap(blob,{
+          imageOrientation:'none',premultiplyAlpha:'none',colorSpaceConversion:'none'
+        });
       }
     }else if(typeof document!=='undefined'){
       const url=URL.createObjectURL(blob);
@@ -420,17 +422,18 @@ export async function optimizeGlbTextures(buffer,{
   resizeImage=resizeEncodedImage
 }={}){
   const parsed=parseGlb(buffer);
-  if(!parsed.binChunk)return {buffer:asBytes(buffer).slice().buffer,resized:0,skipped:0};
+  if(!parsed.binChunk)return {buffer:asBytes(buffer).slice().buffer,resized:0,skipped:0,inPlace:false};
   const inspection=inspectGlb(buffer,{maxTextureSide:maxSide});
   const targets=inspection.images.filter(x=>x.resize&&x.embedded);
-  if(!targets.length)return {buffer:asBytes(buffer).slice().buffer,resized:0,skipped:inspection.oversizedImages};
+  if(!targets.length)return {buffer:buffer instanceof ArrayBuffer?buffer:asBytes(buffer).slice().buffer,resized:0,skipped:inspection.oversizedImages,inPlace:true};
 
   const json=structuredClone(parsed.json);
-  const appended=[];let extraLength=0,resized=0,skipped=0;
+  const patches=[];const appended=[];let extraLength=0,resized=0,skipped=0;
   for(let n=0;n<targets.length;n++){
     const item=targets[n],image=json.images[item.index];
+    const originalView=json.bufferViews?.[image.bufferView];
     const encoded=embeddedImageBytes(parsed,parsed.json.images[item.index]);
-    if(!encoded){skipped++;continue;}
+    if(!encoded||!originalView){skipped++;continue;}
     try{
       onProgress?.({index:n+1,total:targets.length,width:item.width,height:item.height});
       const output=await resizeImage(encoded,{
@@ -439,21 +442,51 @@ export async function optimizeGlbTextures(buffer,{
         targetWidth:item.targetWidth,targetHeight:item.targetHeight
       });
       const bytes=asBytes(output);
-      const offset=align4(parsed.binChunk.bytes.length+extraLength);
-      const pad=offset-(parsed.binChunk.bytes.length+extraLength);
-      if(pad)appended.push(new Uint8Array(pad));
-      extraLength+=pad;
-      const viewIndex=json.bufferViews.length;
-      json.bufferViews.push({buffer:0,byteOffset:offset,byteLength:bytes.length});
-      image.bufferView=viewIndex;
+      if((originalView.buffer??0)===0&&bytes.length<=originalView.byteLength){
+        // Normal downscales are smaller than the source. Reuse the exact same
+        // BIN range, so a 100 MB GLB does not need a second 100 MB ArrayBuffer.
+        patches.push({
+          offset:Number(originalView.byteOffset)||0,
+          capacity:Number(originalView.byteLength)||0,
+          bytes
+        });
+        originalView.byteLength=bytes.length;
+      }else{
+        const offset=align4(parsed.binChunk.bytes.length+extraLength);
+        const pad=offset-(parsed.binChunk.bytes.length+extraLength);
+        if(pad)appended.push(new Uint8Array(pad));
+        extraLength+=pad;
+        const viewIndex=json.bufferViews.length;
+        json.bufferViews.push({buffer:0,byteOffset:offset,byteLength:bytes.length});
+        image.bufferView=viewIndex;
+        appended.push(bytes);extraLength+=bytes.length;
+      }
       image.mimeType=item.mimeType||image.mimeType;
-      appended.push(bytes);extraLength+=bytes.length;resized++;
+      resized++;
     }catch(error){
       console.warn('QDQR texture pre-resize skipped',error);
       skipped++;
     }
   }
-  if(!resized)return {buffer:asBytes(buffer).slice().buffer,resized:0,skipped};
+  if(!resized)return {buffer:buffer instanceof ArrayBuffer?buffer:asBytes(buffer).slice().buffer,resized:0,skipped,inPlace:true};
+
+  // Apply image replacements only after every resize finished successfully.
+  // Until this point the original GLB remains untouched and can still be used.
+  for(const patch of patches){
+    parsed.binChunk.bytes.set(patch.bytes,patch.offset);
+    if(patch.capacity>patch.bytes.length)
+      parsed.binChunk.bytes.fill(0,patch.offset+patch.bytes.length,patch.offset+patch.capacity);
+  }
+
+  const jsonBytes=new TextEncoder().encode(JSON.stringify(json));
+  if(!appended.length&&jsonBytes.length<=parsed.chunks.find(x=>x.type===GLB_JSON).bytes.length){
+    const jsonChunk=parsed.chunks.find(x=>x.type===GLB_JSON);
+    jsonChunk.bytes.fill(0x20);jsonChunk.bytes.set(jsonBytes,0);
+    return {
+      buffer:buffer instanceof ArrayBuffer?buffer:parsed.bytes.slice().buffer,
+      resized,skipped,inPlace:true
+    };
+  }
 
   const finalBin=new Uint8Array(parsed.binChunk.bytes.length+extraLength);
   finalBin.set(parsed.binChunk.bytes,0);
@@ -461,7 +494,7 @@ export async function optimizeGlbTextures(buffer,{
   for(const chunk of appended){finalBin.set(chunk,cursor);cursor+=chunk.length;}
   if(json.buffers?.[0])json.buffers[0].byteLength=finalBin.length;
   const extras=parsed.chunks.filter(c=>c.type!==GLB_JSON&&c.type!==GLB_BIN);
-  return {buffer:rebuildGlb(json,finalBin,extras),resized,skipped};
+  return {buffer:rebuildGlb(json,finalBin,extras),resized,skipped,inPlace:false};
 }
 
 // Fallback for OBJ/GLTF paths and image types that cannot be rewritten before load.
