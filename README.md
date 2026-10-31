@@ -212,3 +212,32 @@ This does not require broad filesystem permissions. The user can cancel safely
 and retry; **Поделиться готовым файлом** still provides the older sharing
 workflow for users who intentionally want Telegram/Drive/other apps.
 Web versions continue using standard browser downloads.
+
+## Resource-safe Android import (v0.1.13)
+
+The Android import path now addresses the causes of memory-related WebGL failure
+instead of treating polygon count as a proxy for memory. A GLB is inspected
+before Three.js creates meshes or decodes its images. Embedded PNG/JPEG/WebP
+maps that exceed the runtime texture target are resized sequentially and the
+GLB image bufferViews are rewritten in memory before GLTFLoader sees them.
+The source file on disk is never modified.
+
+Scene pressure is now estimated from actual vertex/index storage plus decoded
+texture storage. The old single-file 450k-triangle rejection and 850k
+triangle-only scene stop are removed: a dense model with a reasonable memory
+footprint may load, while a texture-heavy scene can be warned or stopped based
+on the memory information exposed by the Android runtime. A coarse pointer by
+itself no longer classifies a device as a 4 GB tablet.
+
+Removed/replaced scene objects explicitly dispose their Three.js geometries,
+materials and textures when those resources are no longer used by the live
+scene. This prevents repeated import/delete/undo cycles from leaving old WebGL
+buffers resident on the GPU. The renderer also no longer keeps
+`preserveDrawingBuffer` enabled permanently; screenshots use a temporary
+render target so the extra framebuffer memory exists only while capturing.
+
+Camera bounds additionally reject extreme world-coordinate offsets that would
+destroy float precision. These changes do not decimate or otherwise change mesh
+geometry. The final device-specific limit still depends on the Android
+WebView/GPU and should be validated on the target tablet.
+
