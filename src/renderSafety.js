@@ -38,11 +38,14 @@ export function createRuntimeProfile({
 
   // Resource budget is derived from information the runtime actually exposes.
   // If neither RAM nor JS heap limit is available, no hard memory gate is guessed.
-  const candidates=[];
-  if(memoryGiB)candidates.push(memoryGiB*1024*0.14);
-  if(heapMiB)candidates.push(heapMiB*0.28);
-  const resourceBudgetMiB=candidates.length
-    ?clamp(Math.min(...candidates),192,isAndroid?768:1536)
+  // Device Memory is the better aggregate signal when available. JS heap
+  // limits vary independently from GPU/decoded-image storage, so use them only
+  // as a fallback instead of taking the smaller value and blocking too early.
+  const rawBudgetMiB=memoryGiB
+    ?memoryGiB*1024*0.14
+    :heapMiB?heapMiB*0.28:null;
+  const resourceBudgetMiB=rawBudgetMiB
+    ?clamp(rawBudgetMiB,192,isAndroid?768:1536)
     :null;
 
   return {
