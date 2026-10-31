@@ -1,7 +1,7 @@
 name: Android APK — Phoenix Mesh Workshop
 on:
   push:
-    branches: [main]
+    branches: [main, fix/android-import-memory-v0.1.13]
   workflow_dispatch:
 
 permissions:
