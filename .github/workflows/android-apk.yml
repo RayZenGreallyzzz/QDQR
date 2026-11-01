@@ -1,14 +1,14 @@
 name: Android APK — Phoenix Mesh Workshop
 on:
   push:
-    branches: [main]
+    branches: [main, fix/true-story-stack-and-gables-v0.1.14]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: qdqr-android-${{ github.ref }}
+  group: qdqr-story-test-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
