@@ -18,9 +18,17 @@ export function moduleSockets(module){
 export function isWallModule(module){
   return moduleSockets(module).length===2;
 }
+export function isStackableModule(module){
+  return !!module?.userData?.qdqrStackClass;
+}
 function allWallModules(container){
   const items=[];
-  container.traverse(x=>{if(x!==container && isWallModule(x))items.push(x);});
+  container?.traverse(x=>{if(x!==container && isWallModule(x))items.push(x);});
+  return items;
+}
+function allStackableModules(container){
+  const items=[];
+  container?.traverse(x=>{if(x!==container && isStackableModule(x))items.push(x);});
   return items;
 }
 function occupyingSocket(target,modules,except){
@@ -35,10 +43,8 @@ function occupyingSocket(target,modules,except){
 }
 function alignSockets(movable,source,target){
   if(!movable.parent)throw new Error('У новой детали нет родителя');
-  // Rotate about world Y so the socket normals face each other.
   movable.updateWorldMatrix(true,false);
   const desired=target.outward.clone().negate();
-  // THREE positive Y rotation turns +X towards -Z, opposite to atan2(z,x).
   const angle=Math.atan2(source.outward.z,source.outward.x)-Math.atan2(desired.z,desired.x);
   const qYaw=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),angle);
   const worldQuat=movable.getWorldQuaternion(new THREE.Quaternion());
@@ -52,14 +58,94 @@ function alignSockets(movable,source,target){
   movable.position.add(a.sub(b));
   movable.updateWorldMatrix(true,false);
   return {
+    kind:'horizontal',
     at:target.point.clone(),
     socket:source.index,
     anchor:target.module,
     error:moduleSockets(movable)[source.index].point.distanceTo(target.point)
   };
 }
+
+function worldDeltaToParentLocal(parent,delta){
+  const a=parent.worldToLocal(new THREE.Vector3(0,0,0));
+  const b=parent.worldToLocal(delta.clone());
+  return b.sub(a);
+}
+function copyWorldOrientation(movable,target){
+  if(!movable.parent)throw new Error('У новой детали нет родителя');
+  target.updateWorldMatrix(true,false);
+  const targetWorld=target.getWorldQuaternion(new THREE.Quaternion());
+  const parentWorld=movable.parent.getWorldQuaternion(new THREE.Quaternion());
+  movable.quaternion.copy(parentWorld.invert().multiply(targetWorld));
+  movable.updateWorldMatrix(true,false);
+}
+function verticalCompatible(movable,target){
+  const a=movable?.userData?.qdqrStackClass;
+  const b=target?.userData?.qdqrStackClass;
+  return !!a&&a===b;
+}
+
+// Stack one construction module directly on the top face of another.
+// Alignment is based on actual world geometry: no 2.6m/3m story constant is used.
+export function stackModuleOn(movable,target,{supportY=null}={}){
+  if(!movable?.parent||!target||movable===target||!verticalCompatible(movable,target))return null;
+  copyWorldOrientation(movable,target);
+  movable.updateWorldMatrix(true,true);
+  target.updateWorldMatrix(true,true);
+  const targetBox=new THREE.Box3().setFromObject(target);
+  const movingBox=new THREE.Box3().setFromObject(movable);
+  if(targetBox.isEmpty()||movingBox.isEmpty())return null;
+  const targetOrigin=target.getWorldPosition(new THREE.Vector3());
+  const movingOrigin=movable.getWorldPosition(new THREE.Vector3());
+  const desiredBottom=Number.isFinite(Number(supportY))?Number(supportY):targetBox.max.y;
+  const delta=new THREE.Vector3(
+    targetOrigin.x-movingOrigin.x,
+    desiredBottom-movingBox.min.y,
+    targetOrigin.z-movingOrigin.z
+  );
+  movable.position.add(worldDeltaToParentLocal(movable.parent,delta));
+  movable.updateWorldMatrix(true,true);
+  const after=new THREE.Box3().setFromObject(movable);
+  return {
+    kind:'vertical',
+    anchor:target,
+    at:new THREE.Vector3(targetOrigin.x,desiredBottom,targetOrigin.z),
+    error:Math.abs(after.min.y-desiredBottom)
+  };
+}
+
+// Magnet for the top/bottom story seam. It only engages when the module is
+// already close in X/Z and its bottom is near the target's actual top face.
+export function snapVerticalModule(module,container,{verticalThreshold=.7,horizontalThreshold=.8,supportY=null}={}){
+  if(!isStackableModule(module)||!container)return null;
+  module.updateWorldMatrix(true,true);
+  const movingBox=new THREE.Box3().setFromObject(module);
+  if(movingBox.isEmpty())return null;
+  const movingOrigin=module.getWorldPosition(new THREE.Vector3());
+  let best=null;
+  for(const target of allStackableModules(container)){
+    if(target===module||!verticalCompatible(module,target))continue;
+    // Never stack a parent onto its own descendant or vice versa.
+    let related=false;
+    for(let p=target;p;p=p.parent)if(p===module)related=true;
+    for(let p=module;p;p=p.parent)if(p===target)related=true;
+    if(related)continue;
+    target.updateWorldMatrix(true,true);
+    const box=new THREE.Box3().setFromObject(target);
+    if(box.isEmpty())continue;
+    const origin=target.getWorldPosition(new THREE.Vector3());
+    const horizontal=Math.hypot(movingOrigin.x-origin.x,movingOrigin.z-origin.z);
+    if(horizontal>horizontalThreshold)continue;
+    const desiredBottom=Number.isFinite(Number(supportY))?Number(supportY):box.max.y;
+    const vertical=Math.abs(movingBox.min.y-desiredBottom);
+    if(vertical>verticalThreshold)continue;
+    const score=vertical+horizontal*.35;
+    if(!best||score<best.score)best={target,score,desiredBottom};
+  }
+  return best?stackModuleOn(module,best.target,{supportY:best.desiredBottom}):null;
+}
+
 // Build a new wall-like segment at the next free end of an existing module.
-// The mesh's centerline, not bounding-box outer edge, is aligned.
 export function dockNewModule(module,floor,{preferred=null}={}){
   if(!isWallModule(module))return null;
   const candidates=allWallModules(floor).filter(x=>x!==module);
@@ -68,10 +154,8 @@ export function dockNewModule(module,floor,{preferred=null}={}){
     :candidates.reverse();
   for(const m of ordered){
     const sockets=moduleSockets(m);
-    // Prefer the far/end socket (B) to extend the current chain.
     for(const s of [sockets[1],sockets[0]]){
       if(occupyingSocket(s,candidates,module))continue;
-      // Every built-in module starts at socket A, including round corners.
       const own=moduleSockets(module)[0];
       if(Math.abs(s.thickness-own.thickness)>.03)continue;
       return alignSockets(module,own,s);
@@ -79,8 +163,6 @@ export function dockNewModule(module,floor,{preferred=null}={}){
   }
   return null;
 }
-// Dragged modules only snap when close to an unoccupied endpoint. No jumps
-// across the scene, and no snapping non-building decor, imports or furniture.
 
 export function locateWallModule(object){
   for(let p=object;p;p=p.parent){
@@ -88,10 +170,15 @@ export function locateWallModule(object){
   }
   return null;
 }
+export function locateBuildModule(object){
+  for(let p=object;p;p=p.parent){
+    if((p.userData?.qdqrStackClass||p.userData?.qdqrWallSockets)&&p.isGroup)return p;
+  }
+  return null;
+}
 
-// Non-wall modules and walls without a compatible free socket still spawn near
-// the current workpiece. In contrast with the old (0,0,0) fallback, this works
-// even when the entire building was moved away from the world origin.
+// Non-building modules still spawn beside the current workpiece. Cross-story
+// wall stacking is deliberately NOT handled here; use stackModuleOn().
 export function placeAdjacentTo(module,reference,{gap=.08}={}){
   if(!module?.parent || !reference || module===reference)return false;
   module.parent.updateWorldMatrix(true,true);
@@ -104,10 +191,7 @@ export function placeAdjacentTo(module,reference,{gap=.08}={}){
     a.min.y-b.min.y,
     a.getCenter(new THREE.Vector3()).z-b.getCenter(new THREE.Vector3()).z
   );
-  const parent=module.parent;
-  const from=parent.worldToLocal(new THREE.Vector3());
-  const to=parent.worldToLocal(moveWorld.clone());
-  module.position.add(to.sub(from));
+  module.position.add(worldDeltaToParentLocal(module.parent,moveWorld));
   module.updateWorldMatrix(true,true);
   return true;
 }
