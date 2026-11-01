@@ -36,7 +36,7 @@ test('bend modifies geometry in a predictable way',()=>{
   assert.ok(b.boundingBox.max.z!==g.boundingBox?.max.z);
 });
 test('all construction presets generate meshes',()=>{
-  for(const type of ['wall','floor','corner','window','door','column','roof','arch']){
+  for(const type of ['wall','floor','corner','window','door','column','gable','gableWindow','roof','arch']){
     const o=createConstruction(type,new THREE.MeshStandardMaterial());
     assert.ok(countTriangles(o).triangles>0,type);
   }
@@ -90,4 +90,23 @@ test('face removal follows Three.js indexed triangle selection',()=>{
  assert.equal(out.after,1);
  assert.equal(out.geometry.getAttribute('position').getX(0),1);
  assert.throws(()=>removePickedFaces(g,[-1]));
+});
+
+test('gable presets fill the roof triangle and window gable has a true opening',()=>{
+ const material=new THREE.MeshStandardMaterial();
+ const solid=createConstruction('gable',material);
+ const windowed=createConstruction('gableWindow',material);
+ const solidBox=new THREE.Box3().setFromObject(solid);
+ const windowBox=new THREE.Box3().setFromObject(windowed);
+ assert.ok(Math.abs(solidBox.getSize(new THREE.Vector3()).x-3)<1e-5);
+ assert.ok(Math.abs(solidBox.getSize(new THREE.Vector3()).z-.25)<1e-5);
+ assert.ok(solidBox.getSize(new THREE.Vector3()).y>1);
+ assert.equal(windowed.userData.qdqrOpening.kind,'window');
+
+ const rayCenter=new THREE.Raycaster(new THREE.Vector3(0,.5,2),new THREE.Vector3(0,0,-1));
+ const raySide=new THREE.Raycaster(new THREE.Vector3(1.05,.35,2),new THREE.Vector3(0,0,-1));
+ windowed.updateWorldMatrix(true,true);
+ assert.equal(rayCenter.intersectObject(windowed,true).length,0);
+ assert.ok(raySide.intersectObject(windowed,true).length>0);
+ assert.ok(Math.abs(windowBox.getSize(new THREE.Vector3()).x-3)<1e-5);
 });
