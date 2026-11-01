@@ -192,7 +192,7 @@ export function createConstruction(type, material){
   group.userData.qdqrBuildType=type;
   group.userData.qdqrStructural=true;
   if(type==='floor')group.userData.qdqrSupportSurface=true;
-  if(type==='roof')group.userData.qdqrStructuralCap=true;
+  if(['roof','gable','gableWindow'].includes(type))group.userData.qdqrStructuralCap=true;
   if(['wall','window','door','gable','gableWindow'].includes(type))
     group.userData.qdqrStackClass='straight-wall';
   if(type==='corner')group.userData.qdqrStackClass='corner-wall';
