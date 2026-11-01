@@ -157,7 +157,9 @@ export function addPresetToFloor(floor,type,material,snap=.25,{preferred=null,au
   // instruction to place the new wall beside it.
   if(isStackableModule(module)&&stackOn){
     const targetBox=new THREE.Box3().setFromObject(stackOn);
-    const support=supportTopForModule(floor,module);
+    // Test support slabs under the TARGET footprint. The new module may still
+    // be at the story origin before X/Z alignment.
+    const support=supportTopForModule(floor,stackOn);
     const desired=Math.max(targetBox.isEmpty()?-Infinity:targetBox.max.y,support??-Infinity);
     const join=stackModuleOn(module,stackOn,{supportY:Number.isFinite(desired)?desired:null});
     if(join){
@@ -183,7 +185,8 @@ export function addPresetToFloor(floor,type,material,snap=.25,{preferred=null,au
         ||compatible[0]||null;
       if(target){
         const box=new THREE.Box3().setFromObject(target);
-        const desired=Math.max(box.isEmpty()?-Infinity:box.max.y,support??-Infinity);
+        const targetSupport=supportTopForModule(floor,target);
+        const desired=Math.max(box.isEmpty()?-Infinity:box.max.y,targetSupport??-Infinity);
         join=stackModuleOn(module,target,{supportY:Number.isFinite(desired)?desired:null});
       }
     }
