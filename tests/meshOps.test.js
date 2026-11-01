@@ -104,7 +104,7 @@ test('gable presets fill the roof triangle and window gable has a true opening',
  assert.equal(windowed.userData.qdqrOpening.kind,'window');
 
  const rayCenter=new THREE.Raycaster(new THREE.Vector3(0,.5,2),new THREE.Vector3(0,0,-1));
- const raySide=new THREE.Raycaster(new THREE.Vector3(1.05,.35,2),new THREE.Vector3(0,0,-1));
+ const raySide=new THREE.Raycaster(new THREE.Vector3(.9,.35,2),new THREE.Vector3(0,0,-1));
  windowed.updateWorldMatrix(true,true);
  assert.equal(rayCenter.intersectObject(windowed,true).length,0);
  assert.ok(raySide.intersectObject(windowed,true).length>0);
