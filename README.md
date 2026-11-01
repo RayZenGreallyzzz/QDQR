@@ -241,3 +241,21 @@ destroy float precision. These changes do not decimate or otherwise change mesh
 geometry. The final device-specific limit still depends on the Android
 WebView/GPU and should be validated on the target tablet.
 
+## Geometry-based story stacking and roof gables (v0.1.14)
+
+House floors no longer use a configured fixed story height. A new story is based on
+the actual upper surface of structural geometry from the previous story. Floor slabs
+are treated as support surfaces, so their real thickness is included: walls sit on
+the slab top, and the next story starts where the previous structure physically ends.
+
+Wall modules now support a separate vertical magnet in addition to the existing
+horizontal endpoint sockets. The first compatible module on a new story inherits the
+footprint of the story below; dragged modules can also snap bottom-to-top in world
+space. Cross-story references are never routed through the generic side-by-side
+placement path.
+
+Two roof infill modules are available: a solid triangular gable and a triangular
+gable with a true window opening. They match the default two-slope roof pitch and
+can stack directly on straight wall/window/door modules. The window variant exposes
+opening metadata so an imported frame can be fitted with the existing insert tool.
+
