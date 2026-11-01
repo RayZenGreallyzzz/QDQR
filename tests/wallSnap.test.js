@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {createConstruction} from '../src/meshOps.js';
 import {createHouse,getFloors,addPresetToFloor,fitInsertToOpening} from '../src/houseOps.js';
-import {moduleSockets,dockNewModule,snapNearbyModule,socketsConnectionError,locateWallModule,placeAdjacentTo} from '../src/wallSnap.js';
+import {moduleSockets,dockNewModule,snapNearbyModule,snapVerticalModule,stackModuleOn,socketsConnectionError,locateWallModule,locateBuildModule,placeAdjacentTo} from '../src/wallSnap.js';
 
 const material=()=>new THREE.MeshStandardMaterial({color:0xc5b8aa});
 const near=(a,b,tol=1e-5)=>assert.ok(Math.abs(a-b)<tol,String(a)+' != '+String(b));
@@ -153,4 +153,26 @@ test('adjacent placement respects a rotated parent group in world coordinates',(
  assert.equal(placeAdjacentTo(next,anchor),true);
  const a=bounds(anchor),b=bounds(next);
  near(b.min.x,a.max.x+.08,.0001);
+});
+
+test('upper-story wall snaps to actual top face of lower wall',()=>{
+ const root=new THREE.Group();
+ const lower=createConstruction('wall',material());root.add(lower);
+ const upper=createConstruction('wall',material());root.add(upper);
+ upper.position.set(.18,2.48,.12);
+ const result=snapVerticalModule(upper,root,{verticalThreshold:.4,horizontalThreshold:.5});
+ assert.ok(result);assert.equal(result.kind,'vertical');
+ const a=bounds(lower),b=bounds(upper);
+ near(b.min.y,a.max.y,.0001);
+ const pa=lower.getWorldPosition(new THREE.Vector3()),pb=upper.getWorldPosition(new THREE.Vector3());
+ near(pa.x,pb.x,.0001);near(pa.z,pb.z,.0001);
+});
+
+test('gable can stack directly on a straight wall and child mesh resolves build module',()=>{
+ const root=new THREE.Group(),wall=createConstruction('wall',material()),gable=createConstruction('gable',material());
+ root.add(wall,gable);
+ const result=stackModuleOn(gable,wall);
+ assert.ok(result);
+ near(bounds(gable).min.y,bounds(wall).max.y,.0001);
+ assert.equal(locateBuildModule(gable.children[0]),gable);
 });
