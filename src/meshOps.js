@@ -163,13 +163,46 @@ export function createConstruction(type, material){
     case 'door':box('Стена слева',.9,2.6,.25,-1.05,1.3);box('Стена справа',.9,2.6,.25,1.05,1.3);box('Перемычка',1.2,.55,.25,0,2.325);break;
     case 'column':{const m=new THREE.Mesh(new THREE.CylinderGeometry(.28,.33,2.7,16),material.clone());m.name='Колонна';m.position.y=1.35;group.add(m);box('База',.85,.19,.85,0,.095);box('Капитель',.8,.19,.8,0,2.8);break;}
     case 'roof':{const m=box('Скат А',2.2,.16,3,-.8,2,0);m.rotation.z=Math.PI/5;const n=box('Скат Б',2.2,.16,3,.8,2,0);n.rotation.z=-Math.PI/5;break;}
+    case 'gable':
+    case 'gableWindow':{
+      // Triangular end wall matched to the default two-slope roof pitch.
+      // Local Y=0 is the exact top seam of the wall below.
+      const half=1.5,rise=half*Math.tan(Math.PI/5);
+      const shape=new THREE.Shape();
+      shape.moveTo(-half,0);shape.lineTo(half,0);shape.lineTo(0,rise);shape.closePath();
+      if(type==='gableWindow'){
+        const w=.85,h=.55,y0=.22;
+        const hole=new THREE.Path();
+        // Clockwise hole inside the counter-clockwise outer triangle.
+        hole.moveTo(-w/2,y0);hole.lineTo(-w/2,y0+h);
+        hole.lineTo(w/2,y0+h);hole.lineTo(w/2,y0);hole.closePath();
+        shape.holes.push(hole);
+      }
+      const g=new THREE.ExtrudeGeometry(shape,{depth:.25,bevelEnabled:false,steps:1});
+      g.translate(0,0,-.125);g.computeVertexNormals();
+      const m=new THREE.Mesh(g,material.clone());
+      m.name=type==='gableWindow'?'Фронтон с окном':'Глухой фронтон';
+      m.castShadow=true;m.receiveShadow=true;group.add(m);
+      break;
+    }
     case 'arch':box('Левая колонна',.45,2.6,.5,-1.2,1.3);box('Правая колонна',.45,2.6,.5,1.2,1.3);box('Верхняя балка',2.85,.45,.5,0,2.8);break;
   }
+  // All built-in construction pieces carry structural metadata so story
+  // placement can be derived from their real geometry instead of a fixed floor height.
+  group.userData.qdqrBuildType=type;
+  group.userData.qdqrStructural=true;
+  if(type==='floor')group.userData.qdqrSupportSurface=true;
+  if(type==='roof')group.userData.qdqrStructuralCap=true;
+  if(['wall','window','door','gable','gableWindow'].includes(type))
+    group.userData.qdqrStackClass='straight-wall';
+  if(type==='corner')group.userData.qdqrStackClass='corner-wall';
+  if(type==='column')group.userData.qdqrStackClass='column';
+  if(type==='arch')group.userData.qdqrStackClass='arch';
+
   // Building wall-type modules share the exact same wall-axis / 25cm thickness.
   // Sockets are in module LOCAL coordinates (Y=0 at foundation). They survive
   // group rotations, scaling and glTF export in userData.
   if(['wall','window','door','corner'].includes(type)){
-    group.userData.qdqrBuildType=type;
     group.userData.qdqrWallThickness=.25;
     const r=1.125;
     const points=type==='corner'
@@ -188,6 +221,9 @@ export function createConstruction(type, material){
       kind:'window',centerX:0,centerY:1.5,width:1.4,height:.9,depth:.25
     };
   }
+  if(type==='gableWindow')group.userData.qdqrOpening={
+    kind:'window',centerX:0,centerY:.495,width:.85,height:.55,depth:.25
+  };
   return group;
 }
 
