@@ -57,7 +57,7 @@ test('place imported object on selected story and respect its floor slab thickne
   const floor2=createFloor(house);
   const slab=addPresetToFloor(floor2,'floor',material());
   const model=new THREE.Mesh(new THREE.BoxGeometry(1,2,1),material());
-  model.position.set(5,1,2);
+  model.position.set(.5,1,.5);
   const root=new THREE.Group();root.add(house,model);
   const startX=bounds(model).getCenter(new THREE.Vector3()).x;
   putOnFloor(floor2,model);
