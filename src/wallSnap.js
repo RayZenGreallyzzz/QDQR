@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 const P=e=>new THREE.Vector3(e[0],e[1],e[2]);
 const TOL=.055;
+const hasFiniteNumber=value=>value!==null&&value!==undefined&&value!==''&&Number.isFinite(Number(value));
 
 export function moduleSockets(module){
   const list=module?.userData?.qdqrWallSockets;
@@ -97,7 +98,7 @@ export function stackModuleOn(movable,target,{supportY=null}={}){
   if(targetBox.isEmpty()||movingBox.isEmpty())return null;
   const targetOrigin=target.getWorldPosition(new THREE.Vector3());
   const movingOrigin=movable.getWorldPosition(new THREE.Vector3());
-  const desiredBottom=Number.isFinite(Number(supportY))?Number(supportY):targetBox.max.y;
+  const desiredBottom=hasFiniteNumber(supportY)?Number(supportY):targetBox.max.y;
   const delta=new THREE.Vector3(
     targetOrigin.x-movingOrigin.x,
     desiredBottom-movingBox.min.y,
@@ -136,7 +137,7 @@ export function snapVerticalModule(module,container,{verticalThreshold=.7,horizo
     const origin=target.getWorldPosition(new THREE.Vector3());
     const horizontal=Math.hypot(movingOrigin.x-origin.x,movingOrigin.z-origin.z);
     if(horizontal>horizontalThreshold)continue;
-    const desiredBottom=Number.isFinite(Number(supportY))?Number(supportY):box.max.y;
+    const desiredBottom=hasFiniteNumber(supportY)?Number(supportY):box.max.y;
     const vertical=Math.abs(movingBox.min.y-desiredBottom);
     if(vertical>verticalThreshold)continue;
     const score=vertical+horizontal*.35;
