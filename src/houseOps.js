@@ -169,9 +169,24 @@ export function addPresetToFloor(floor,type,material,snap=.25,{preferred=null,au
   // First module on a new story can find the wall directly below by geometry.
   if(isStackableModule(module)&&floor.userData.floorNumber>1){
     const support=supportTopForModule(floor,module);
-    const join=snapVerticalModule(module,floor.parent||floor,{
+    let join=snapVerticalModule(module,floor.parent||floor,{
       verticalThreshold:.8,horizontalThreshold:1.0,supportY:support
     });
+    // The first wall of a brand-new story may not yet share X/Z with anything
+    // because the story group itself has no footprint. In that case inherit
+    // the footprint from the previous story instead of spawning at world origin.
+    if(!join&&floor.parent?.userData?.qdqrHouse){
+      const floors=getFloors(floor.parent),index=floors.indexOf(floor),below=floors[index-1];
+      const compatible=(below?.children||[]).filter(o=>
+        o.userData?.qdqrStackClass===module.userData.qdqrStackClass);
+      const target=compatible.find(o=>o.userData?.qdqrBuildType===module.userData.qdqrBuildType)
+        ||compatible[0]||null;
+      if(target){
+        const box=new THREE.Box3().setFromObject(target);
+        const desired=Math.max(box.isEmpty()?-Infinity:box.max.y,support??-Infinity);
+        join=stackModuleOn(module,target,{supportY:Number.isFinite(desired)?desired:null});
+      }
+    }
     if(join){
       module.userData.qdqrLastJoin={kind:'vertical',targetName:join.anchor.name,error:join.error};
       return module;
