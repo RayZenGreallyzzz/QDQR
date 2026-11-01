@@ -14,8 +14,8 @@ import {bakeStaticAssembly} from './assemblyOps.js';
 import {projectTextureToModule,attachDecorToWall} from './surfaceOps.js';
 import {captureFrameSilhouette,buildGlassPieces} from './glassOps.js';
 import {createOpeningGeometry,getWallBounds,defaultOpening,cutWallOpening,makeOpeningTrim} from './openingOps.js';
-import {createHouse,createFloor,getFloors,putOnFloor,addPresetToFloor,setFloorVisibility,fitInsertToOpening} from './houseOps.js';
-import {dockNewModule,snapNearbyModule,isWallModule,locateWallModule,placeAdjacentTo} from './wallSnap.js';
+import {createHouse,createFloor,getFloors,findFloorOf,putOnFloor,addPresetToFloor,setFloorVisibility,fitInsertToOpening} from './houseOps.js';
+import {dockNewModule,snapNearbyModule,snapVerticalModule,isWallModule,isStackableModule,locateWallModule,locateBuildModule,placeAdjacentTo} from './wallSnap.js';
 import {selectionGizmoPose,applyCenteredGizmo} from './editorGizmo.js';
 import {createRuntimeProfile,measureScene,validateSceneBounds,mobileSceneBudget,inspectGlb,optimizeGlbTextures,reduceImportedTextureFootprint,disposeDetachedResources} from './renderSafety.js';
 
@@ -457,16 +457,15 @@ function currentFloor(){
   return getFloors(currentHouse()).find(o=>o.uuid===$('floorTarget').value)||null;
 }
 function createHouseAction(){
-  const height=Number($('floorHeight').value);
   try{
-    const house=createHouse($('houseName').value,height);
+    const house=createHouse($('houseName').value);
     snapshot();
     root.add(house);
     select(house);
     $('houseTarget').value=house.uuid;
     $('floorTarget').value=getFloors(house)[0].uuid;
     refreshHouseTargets();
-    notify('Создан дом «'+house.name+'» с первым этажом. Строй стены и пол.');
+    notify('Создан дом «'+house.name+'». Высота этажей будет рассчитана по реальной геометрии.');
   }catch(e){notify('Не удалось создать дом: '+e.message,true);}
 }
 function addFloorAction(){
@@ -478,7 +477,7 @@ function addFloorAction(){
     select(floor);
     $('floorTarget').value=floor.uuid;
     refreshHouseTargets();
-    notify('Добавлен '+floor.name+'. Модули будут на нужной высоте.');
+    notify('Добавлен '+floor.name+'. Его основание взято с фактического верха предыдущей конструкции.');
   }catch(e){notify(e.message,true);}
 }
 function duplicateFloorAction(){
@@ -487,14 +486,15 @@ function duplicateFloorAction(){
   const floors=getFloors(house);
   if(floors.length>=12)return notify('Лимит: 12 этажей',true);
   if(countTriangles(floor).triangles>100000 && !window.confirm('Этаж тяжёлый. Копирование может занять много памяти. Продолжить?'))return;
-  snapshot();
-  const copy=cloneDeep(floor);
-  const number=Math.max(...floors.map(f=>f.userData.floorNumber))+1;
-  copy.name='Этаж '+number;copy.userData.qdqrFloor=true;copy.userData.floorNumber=number;
-  copy.visible=true;copy.position.y=(number-1)*Number(house.userData.floorHeight);
-  house.add(copy);
-  select(copy);$('floorTarget').value=copy.uuid;refreshHouseTargets();
-  notify('Скопирован этаж целиком, детали и текстуры сохранены.');
+  try{
+    snapshot();
+    const copy=createFloor(house);
+    const source=cloneDeep(floor);
+    while(source.children.length)copy.add(source.children[0]);
+    copy.visible=true;
+    select(copy);$('floorTarget').value=copy.uuid;refreshHouseTargets();
+    notify('Скопирован этаж. Основание нового этажа рассчитано по фактическому верху предыдущего.');
+  }catch(e){notify(e.message,true);}
 }
 function focusFloorAction(){
   const floor=currentFloor();
@@ -513,29 +513,46 @@ function placePresetAction(){
   if(!floor)return notify('Сначала выбери этаж',true);
   try{
     const preferred=locateWallModule(selected);
+    const buildReference=locateBuildModule(selected);
     const reference=selected;
     snapshot();
-    const module=addPresetToFloor(floor,$('housePreset').value,activeMaterial(),.25,
-      {preferred:preferred?.parent===floor?preferred:null,autoDock:$('autoJoinWalls').checked});
+    const module=addPresetToFloor(floor,$('housePreset').value,activeMaterial(),.25,{
+      preferred,
+      stackOn:buildReference,
+      autoDock:$('autoJoinWalls').checked
+    });
+    // Generic side placement is allowed only inside the SAME story. A selected
+    // wall from another floor is a vertical reference and must never push a new
+    // second-story wall sideways.
     if(!module.userData.qdqrLastJoin&&reference&&reference!==floor
       &&reference!==currentHouse()&&reference!==module
-      &&reference.parent && !reference.getObjectById?.(module.id))
+      &&reference.parent&&findFloorOf(reference)===floor
+      &&!reference.getObjectById?.(module.id))
       placeAdjacentTo(module,preferred||reference);
     select(module);
-    notify(module.userData.qdqrLastJoin?
+    const join=module.userData.qdqrLastJoin;
+    notify(join?.kind==='vertical'?
+      'Модуль пристыкован торец-в-торец к верхней грани нижней конструкции.':
+      join?.kind==='horizontal'?
       'Модуль автоматически состыкован по центральной оси стены.':
       'Модуль добавлен на '+floor.name+'. Можно переместить или повернуть.');
   }catch(e){notify(e.message,true);}
 }
 
 function manualJoinWalls(){
-  if(!selected||!isWallModule(selected))return notify('Выбери прямую стену, угол, дверной или оконный проём',true);
-  const container=selected.parent||root;
+  const module=locateBuildModule(selected);
+  if(!module||(!isWallModule(module)&&!isStackableModule(module)))
+    return notify('Выбери стену, угол, фронтон, колонну или арку',true);
   snapshot();
-  const result=snapNearbyModule(selected,container,{threshold:1.2});
-  if(!result)return notify('Рядом не найден свободный стык. Подвинь деталь ближе.',true);
-  select(selected);
-  notify('Стыковка выполнена точно по центральной оси. Без зазора.');
+  const vertical=isStackableModule(module)
+    ?snapVerticalModule(module,currentHouse()||root,{verticalThreshold:1.25,horizontalThreshold:1.25})
+    :null;
+  const result=vertical||(isWallModule(module)?snapNearbyModule(module,module.parent||root,{threshold:1.2}):null);
+  if(!result)return notify('Рядом не найден совместимый стык. Подвинь деталь ближе.',true);
+  select(module);
+  notify(result.kind==='vertical'?
+    'Вертикальная стыковка выполнена: низ верхнего модуля точно на верхней грани нижнего.':
+    'Стыковка выполнена точно по центральной оси. Без зазора.');
 }
 function installInsertAction(){
   const floor=currentFloor(),insert=selected;
@@ -1545,9 +1562,17 @@ function initEvents(){
       dragInitialWorld=selected.matrixWorld.clone();
       dragParentInverse=selected.parent.matrixWorld.clone().invert();
     }else{
-      if($('autoJoinWalls').checked && locateWallModule(selected)===selected){
-        const snapped=snapNearbyModule(selected,root,{threshold:.65});
-        if(snapped)notify('Магнит: стены пристыкованы по центральной оси.');
+      if($('autoJoinWalls').checked){
+        const build=locateBuildModule(selected);
+        if(build===selected){
+          const vertical=isStackableModule(build)
+            ?snapVerticalModule(build,currentHouse()||root,{verticalThreshold:.7,horizontalThreshold:.85})
+            :null;
+          const snapped=vertical||(isWallModule(build)?snapNearbyModule(build,root,{threshold:.65}):null);
+          if(snapped)notify(snapped.kind==='vertical'?
+            'Магнит: модуль пристыкован к верхней грани конструкции.':
+            'Магнит: стены пристыкованы по центральной оси.');
+        }
       }
       dragInitialPivot=dragInitialWorld=dragParentInverse=null;
       if(selected)syncSelectionGizmo();
